@@ -374,8 +374,11 @@ Per-crop seed costs and per-product base prices are not configurable; they are d
 
 The local optimization loop uses only `kaggle-environments`; it does not call
 the Kaggle API. The manually designed policy is preserved in
-`baseline_config.json`. Policy overrides are loaded as JSON, while
-`submission.py` remains usable with its built-in defaults when submitted alone.
+`baseline_config.json`; the current measured policy is saved as
+`optimized_config.json` and embedded in `submission.py`, so that file remains
+standalone for competition use. The local game runner uses that measured
+policy by default. Pass `--config baseline_config.json` to reproduce the
+manual baseline, or pass another JSON file to test a candidate.
 
 Install the local simulator in a virtual environment. Use Python 3.13 or an
 earlier version supported by your Kaggle Environments release (Python 3.14 is
@@ -409,12 +412,22 @@ Run 50 full games:
 python experiments/run_games.py --start-seed 1000 --num-games 50 --opponent random
 ```
 
-Stress-test one game against actions recorded from a replay (the trailing `1`
-selects the opponent/player 1 from that replay):
+Put all original Kaggle downloads in `replays/kaggle_replays/`, keeping each
+download's timestamped filename. They stay separate from locally generated
+games and remain local and ignored by Git. Analyze any file by passing its path
+to `analysis/analyze_replay.py`. Stress-test one game against a specific replay
+by using its filename below (the trailing `1` selects player 1 from that
+replay):
 
 ```bash
-python experiments/run_games.py --seeds 1000 --opponent replay:replays/kaggle_game.json:1
+python experiments/run_games.py --seeds 1000 --opponent replay:replays/kaggle_replays/kaggle_game.json:1
 ```
+
+Downloaded high-scoring agent source files belong in
+`references/kaggle_agents/`. Keep them separate from our competition entry
+(`submission.py`) and from replay data. The files are local and ignored by Git;
+we can inspect their strategies, adapt ideas to our agent, or add compatible
+files as offline opponents after checking their interface and dependencies.
 
 This replays the recorded actions as a fixed opponent. It does not adapt to the
 new game state, so use it as a specific stress test rather than the only

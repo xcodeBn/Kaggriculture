@@ -21,5 +21,12 @@ WHATHAPPENING.md
 # Generated replays and experiment outputs; keep directory placeholders.
 replays/*
 !replays/.gitkeep
+!replays/kaggle_replays/
+replays/kaggle_replays/*
+!replays/kaggle_replays/.gitkeep
+!replays/kaggle_replays/README.md
+references/kaggle_agents/*
+!references/kaggle_agents/.gitkeep
+!references/kaggle_agents/README.md
 experiments/results/*
 !experiments/results/.gitkeep

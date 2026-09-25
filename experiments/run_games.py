@@ -32,7 +32,9 @@ def run_game(seed: int, opponent: str = "random", config: dict[str, Any] | None 
              steps: int = 720, save_dir: Path | None = None,
              watch: bool = False) -> dict[str, Any]:
     make = load_environment()
-    submission.set_policy_config(config or load_config())
+    submission.set_policy_config(
+        config if config is not None else submission.COMPETITION_CONFIG
+    )
     env = make("kaggriculture", configuration={"episodeSteps": steps, "seed": seed}, debug=True)
     if opponent == "random":
         opponent_agent = seeded_random_agent(seed)
@@ -102,7 +104,7 @@ def main() -> None:
     parser.add_argument("--watch", action="store_true",
                         help="render the game as HTML and open it in your browser (one seed only)")
     args = parser.parse_args()
-    cfg = load_config(args.config)
+    cfg = load_config(args.config) if args.config else dict(submission.COMPETITION_CONFIG)
     seeds = seed_list(args.seeds, args.start_seed, args.num_games)
     if args.watch and len(seeds) != 1:
         parser.error("--watch requires exactly one game; pass one --seeds value")

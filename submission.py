@@ -89,6 +89,41 @@ def set_policy_config(config: Dict[str, Any]) -> Dict[str, Any]:
 
 DEFAULT_CONFIG = dict(CONFIG)
 
+# In the local Kaggriculture interpreter, the final agent observation for the
+# default 720-step episode is step 718 (the interpreter completes immediately
+# after processing that action).
+FINAL_ACTION_STEP = 718
+
+# Best policy selected on the fixed-seed replay stress test, then checked on
+# fresh seeds against the recorded replay policy, `starter`, and `random`.
+# Kept inline so the competition-facing file remains standalone.
+COMPETITION_CONFIG: Dict[str, Any] = {
+    "cash_reserve": 483,
+    "land_reserve": 846,
+    "max_hands": 8,
+    "min_cash_for_hand": 0,
+    "sell_price_ratio": 0.5,
+    "sell_min_price": 1,
+    "sell_batch_size": 10,
+    "town_demand_weight": 1.0,
+    "town_price_weight": 0.3,
+    "town_scarcity_weight": 0.0972134214474414,
+    "wheat_ratio": 1.0,
+    "carrot_ratio": 1.2586055850255504,
+    "tomato_ratio": 1.0,
+    "strawberry_ratio": 1.0592817857061996,
+    "melon_ratio": 0.5675266355987868,
+    "harvest_buffer_days": 0,
+    "buy_land_enabled": False,
+    "buy_land_cash_multiplier": 1.5,
+    "hire_enabled": True,
+    "prefer_nearest_action": True,
+    "max_animals": 8,
+    "animal_species": "COW",
+    "sheep_goal": 0,
+    "cow_goal": 0,
+}
+
 
 # ------------------------------------------------------------
 # Game facts
@@ -653,6 +688,12 @@ def sell_orders(obs: Dict[str, Any]) -> List[List[Any]]:
     farms = obs.get("farms", [])
     player = int(obs.get("player", 0))
     farm = farms[player] if player < len(farms) else {}
+    # Kaggriculture's documented default season is 720 turns, with step
+    # zero at the start. On the final turn there is no benefit to carrying
+    # saleable shed inventory forward, so liquidate even below the normal
+    # price threshold and release wheat reserved for animal feed.
+    observed_step = obs.get("step")
+    final_turn = observed_step is not None and int(observed_step) >= FINAL_ACTION_STEP
     animal_count = sum(
         1 for row in farm.get("tiles", []) for tile in row
         if isinstance(tile, dict) and tile.get("animal")
@@ -665,7 +706,7 @@ def sell_orders(obs: Dict[str, Any]) -> List[List[Any]]:
         if quantity <= 0:
             continue
 
-        if item == "WHEAT":
+        if item == "WHEAT" and not final_turn:
             quantity = max(0, int(quantity) - wheat_reserve)
             if quantity <= 0:
                 continue
@@ -678,7 +719,7 @@ def sell_orders(obs: Dict[str, Any]) -> List[List[Any]]:
 
         # Avoid selling at a disastrous floor unless it is explicitly
         # configured to do so.
-        if price < CONFIG["sell_min_price"]:
+        if price < CONFIG["sell_min_price"] and not final_turn:
             continue
 
         base = (
@@ -691,13 +732,12 @@ def sell_orders(obs: Dict[str, Any]) -> List[List[Any]]:
             }.get(item, price)
         )
 
-        if price < base * CONFIG["sell_price_ratio"]:
+        if price < base * CONFIG["sell_price_ratio"] and not final_turn:
             # Low price: hold inventory for now.
             continue
 
-        batch = min(
-            int(quantity),
-            int(CONFIG["sell_batch_size"]),
+        batch = int(quantity) if final_turn else min(
+            int(quantity), int(CONFIG["sell_batch_size"]),
         )
 
         if batch > 0:
@@ -708,6 +748,48 @@ def sell_orders(obs: Dict[str, Any]) -> List[List[Any]]:
             ])
 
     return orders
+
+
+def final_turn_liquidation(obs: Dict[str, Any], farm: Dict[str, Any]) -> tuple[List[List[Any]], List[List[Any]]]:
+    """Deposit carried saleable goods at the shed, then sell them all.
+
+    Unit actions run before market orders. On the final default-season turn,
+    hands already on shed-access tiles can therefore deposit their inventory and
+    have it sold in the same turn. Movement to the shed would take too long.
+    """
+    private = obs.get("private", {})
+    shed = dict(private.get("shed", {}))
+    inventories = private.get("inventories", [])
+    positions = [farm.get("farmer", [None, None]), *farm.get("hands", [])]
+    final_actions: List[List[Any]] = []
+    projected_total = sum(max(0, int(n)) for n in shed.values())
+    shed_tiles = {(4, 4), (5, 4), (4, 5), (5, 5)}
+    capacity = 100  # Kaggriculture's documented default shed capacity.
+    prices = obs.get("market", {}).get("prices", {})
+
+    for index, position in enumerate(positions):
+        inventory = inventories[index] if index < len(inventories) else {}
+        room = max(0, capacity - projected_total)
+        if (len(position) != 2 or tuple(position) not in shed_tiles or room == 0):
+            final_actions.append(["PASS"])
+            continue
+        saleable = [(int(prices.get(item, 0)) * min(max(0, int(quantity)), room),
+                     item, min(max(0, int(quantity)), room))
+                    for item, quantity in inventory.items()
+                    if int(prices.get(item, 0)) > 0 and int(quantity) > 0]
+        if not saleable:
+            final_actions.append(["PASS"])
+            continue
+        _, item, quantity = max(saleable)
+        # PLACE with an item and amount deposits only that saleable product;
+        # DROP would also dump unsaleable animals into the limited-capacity shed.
+        final_actions.append(["PLACE", item, quantity])
+        shed[item] = int(shed.get(item, 0)) + quantity
+        projected_total += quantity
+
+    liquidation_obs = dict(obs)
+    liquidation_obs["private"] = dict(private, shed=shed)
+    return sell_orders(liquidation_obs), final_actions
 
 
 # ------------------------------------------------------------
@@ -1100,6 +1182,14 @@ class KaggricultureAgent:
 
             hand_actions.append(["PASS"])
 
+        # Liquidate instead of buying seeds, land, animals, or labor that
+        # cannot pay back before the documented 720-turn season ends.
+        observed_step = obs.get("step")
+        if observed_step is not None and int(observed_step) >= FINAL_ACTION_STEP:
+            market_orders, final_actions = final_turn_liquidation(obs, farm)
+            farmer_action = final_actions[0]
+            hand_actions = final_actions[1:]
+
         # Kaggriculture silently drops market orders beyond the
         # configured per-turn maximum. We cap defensively here.
         max_orders = 10
@@ -1115,7 +1205,7 @@ class KaggricultureAgent:
 # Competition entry point
 # ------------------------------------------------------------
 
-_agent = KaggricultureAgent(CONFIG)
+_agent = KaggricultureAgent(COMPETITION_CONFIG)
 
 
 def agent(obs: Dict[str, Any]) -> Dict[str, Any]:

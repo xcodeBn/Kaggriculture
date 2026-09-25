@@ -61,6 +61,31 @@ class PolicyTests(unittest.TestCase):
         obs["market"]["prices"]["WHEAT"] = 25
         self.assertEqual(submission.sell_orders(obs), [["SELL", "WHEAT", 3]])
 
+    def test_final_turn_liquidates_all_shed_inventory(self):
+        obs = {"step": 718, "player": 0,
+               "farms": [{"tiles": [[None]]}],
+               "private": {"shed": {"WHEAT": 31, "WOOL": 14}},
+               "market": {"prices": {"WHEAT": 1, "WOOL": 1}}}
+        self.assertEqual(submission.sell_orders(obs), [
+            ["SELL", "WHEAT", 31], ["SELL", "WOOL", 14],
+        ])
+
+    def test_final_turn_drops_carried_goods_then_sells_them(self):
+        board = [[None for _ in range(10)] for _ in range(10)]
+        obs = {"step": 718, "player": 0, "day": 29,
+               "farms": [{"money": 3000, "tiles": board, "farmer": [4, 4],
+                           "hands": [[0, 0]], "unlocked_quadrants": ["NW"],
+                           "hires_today": 0}],
+               "private": {"shed": {"WOOL": 3}, "inventories": [{"WOOL": 7}, {"WOOL": 9}],
+                           "seeds": {}},
+               "market": {"prices": {"WOOL": 1}}, "town": {}}
+        result = submission.KaggricultureAgent(DEFAULT_CONFIG)(obs)
+        self.assertEqual(result["farmer"], ["PLACE", "WOOL", 7])
+        self.assertEqual(result["hands"], [["PASS"]])
+        self.assertEqual(result["market"], [["SELL", "WOOL", 10]])
+        self.assertFalse(any(order[0] in {"HIRE", "BUY_LAND", "BUY_SEED"}
+                             for order in result["market"]))
+
     def test_animal_wheat_reserve_and_hand_task(self):
         cfg = dict(DEFAULT_CONFIG, max_animals=6, animal_species="SHEEP")
         submission.set_policy_config(cfg)
