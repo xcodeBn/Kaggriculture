@@ -1,0 +1,25 @@
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Local environments and editor/OS files
+.venv/
+venv/
+env/
+.DS_Store
+WHATHAPPENING.md
+
+# Generated logs
+*.log
+
+# Generated replays and experiment outputs; keep directory placeholders.
+replays/*
+!replays/.gitkeep
+experiments/results/*
+!experiments/results/.gitkeep

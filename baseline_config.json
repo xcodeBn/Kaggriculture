@@ -1,0 +1,22 @@
+{
+  "cash_reserve": 500,
+  "land_reserve": 1000,
+  "max_hands": 3,
+  "min_cash_for_hand": 800,
+  "sell_price_ratio": 0.8,
+  "sell_min_price": 1,
+  "sell_batch_size": 10,
+  "town_demand_weight": 1.0,
+  "town_price_weight": 0.3,
+  "town_scarcity_weight": 0.2,
+  "wheat_ratio": 1.0,
+  "carrot_ratio": 1.0,
+  "tomato_ratio": 1.0,
+  "strawberry_ratio": 1.0,
+  "melon_ratio": 0.8,
+  "harvest_buffer_days": 0,
+  "buy_land_enabled": true,
+  "buy_land_cash_multiplier": 1.5,
+  "hire_enabled": true,
+  "prefer_nearest_action": true
+}
