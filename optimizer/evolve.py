@@ -62,25 +62,33 @@ def optimize(population_size: int = 8, generations: int = 5, seed: int = 7,
              train_seeds: tuple[int, ...] = TRAIN_SEEDS,
              validation_seeds: tuple[int, ...] = VALIDATION_SEEDS,
              holdout_seeds: tuple[int, ...] = HOLDOUT_SEEDS,
-             output_root: Path | None = None, steps: int = 720) -> Path:
+             output_root: Path | None = None, steps: int = 720,
+             opponent: str = "random",
+             seed_config_paths: tuple[Path, ...] = ()) -> Path:
     rng = random.Random(seed)
     output_root = output_root or Path(__file__).resolve().parents[1] / "experiments" / "results"
     run_dir = output_root / ("run_" + datetime.now().strftime("%Y%m%d_%H%M%S_%f"))
     run_dir.mkdir(parents=True, exist_ok=False)
     baseline = load_config()
-    population = [dict(baseline)] + [mutate(baseline, rng, rate=0.45)
-                                      for _ in range(population_size - 1)]
+    population = [dict(baseline)]
+    for path in seed_config_paths:
+        if len(population) >= population_size:
+            break
+        population.append(load_config(path))
+    while len(population) < population_size:
+        parent = rng.choice(population)
+        population.append(mutate(parent, rng, rate=0.45))
     evaluations: dict[str, dict[str, Any]] = {}
     candidate_rows: list[dict[str, Any]] = []
     generation_rows: list[dict[str, Any]] = []
     candidate_num = 0
-    baseline_score = evaluate_config(baseline, train_seeds, steps=steps)
+    baseline_score = evaluate_config(baseline, train_seeds, opponent=opponent, steps=steps)
     for generation in range(generations):
         scored = []
         for candidate in population:
             candidate_id = f"c{candidate_num:04d}"
             candidate_num += 1
-            metrics = evaluate_config(candidate, train_seeds, steps=steps)
+            metrics = evaluate_config(candidate, train_seeds, opponent=opponent, steps=steps)
             evaluations[candidate_id] = {"config": candidate, "training": metrics}
             scored.append((metrics["mean_reward"], candidate_id, candidate))
             print(f"generation={generation} candidate={candidate_id} "
@@ -107,21 +115,26 @@ def optimize(population_size: int = 8, generations: int = 5, seed: int = 7,
     validation_scores = {}
     for candidate_id in finalist_ids:
         validation_scores[candidate_id] = evaluate_config(
-            evaluations[candidate_id]["config"], validation_seeds, steps=steps)
+            evaluations[candidate_id]["config"], validation_seeds,
+            opponent=opponent, steps=steps)
         print(f"validation candidate={candidate_id} "
               f"mean={validation_scores[candidate_id]['mean_reward']:.3f}", flush=True)
         for row in candidate_rows:
             if row["candidate_id"] == candidate_id:
                 row["validation_score"] = validation_scores[candidate_id]["mean_reward"]
-    baseline_validation = evaluate_config(baseline, validation_seeds, steps=steps)
+    baseline_validation = evaluate_config(baseline, validation_seeds,
+                                          opponent=opponent, steps=steps)
     selected_id = max(finalist_ids, key=lambda cid: validation_scores[cid]["mean_reward"])
     best_config = evaluations[selected_id]["config"]
-    baseline_holdout = evaluate_config(baseline, holdout_seeds, steps=steps)
-    best_holdout = evaluate_config(best_config, holdout_seeds, steps=steps)
+    baseline_holdout = evaluate_config(baseline, holdout_seeds,
+                                       opponent=opponent, steps=steps)
+    best_holdout = evaluate_config(best_config, holdout_seeds,
+                                   opponent=opponent, steps=steps)
     print("holdout evaluation complete", flush=True)
     best_training = evaluations[selected_id]["training"]
     best_validation = validation_scores[selected_id]
     report = {
+        "opponent": opponent,
         "seed_sets": {"training": list(train_seeds), "validation": list(validation_seeds),
                       "holdout": list(holdout_seeds)},
         "baseline": {"training": baseline_score, "validation": baseline_validation,
@@ -153,8 +166,13 @@ def main() -> None:
     parser.add_argument("--generations", type=int, default=5)
     parser.add_argument("--seed", type=int, default=7)
     parser.add_argument("--steps", type=int, default=720)
+    parser.add_argument("--opponent", default="random",
+                        help="local Kaggriculture opponent agent name, e.g. random or starter")
+    parser.add_argument("--seed-config", type=Path, action="append", default=[],
+                        help="include a hand-built starting candidate (repeatable)")
     args = parser.parse_args()
-    optimize(args.population, args.generations, args.seed, steps=args.steps)
+    optimize(args.population, args.generations, args.seed, steps=args.steps,
+             opponent=args.opponent, seed_config_paths=tuple(args.seed_config))
 
 
 if __name__ == "__main__":

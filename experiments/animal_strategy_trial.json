@@ -1,0 +1,6 @@
+{
+  "max_hands": 8,
+  "min_cash_for_hand": 0,
+  "max_animals": 8,
+  "animal_species": "SHEEP"
+}

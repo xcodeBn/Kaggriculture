@@ -14,7 +14,7 @@ from config import DEFAULT_CONFIG, PARAMETERS, load_config
 from optimizer.evolve import crossover, mutate
 import submission
 from analysis.analyze_replay import analyze_replay
-from experiments.opponents import seeded_random_agent
+from experiments.opponents import replay_action_agent, seeded_random_agent
 
 
 class PolicyTests(unittest.TestCase):
@@ -31,6 +31,10 @@ class PolicyTests(unittest.TestCase):
             bad_path.write_text(json.dumps({"max_hands": 99}), encoding="utf-8")
             with self.assertRaises(ValueError):
                 load_config(bad_path)
+            bad_species = Path(directory) / "bad_species.json"
+            bad_species.write_text(json.dumps({"animal_species": "DRAGON"}), encoding="utf-8")
+            with self.assertRaises(ValueError):
+                load_config(bad_species)
 
     def test_repeated_shop_demand_counts_instances(self):
         obs = {"town": {"unlocked_shops": ["BAKERY", "BAKERY", "PET_CAFE"]}}
@@ -56,6 +60,24 @@ class PolicyTests(unittest.TestCase):
         self.assertEqual(submission.sell_orders(obs), [])
         obs["market"]["prices"]["WHEAT"] = 25
         self.assertEqual(submission.sell_orders(obs), [["SELL", "WHEAT", 3]])
+
+    def test_animal_wheat_reserve_and_hand_task(self):
+        cfg = dict(DEFAULT_CONFIG, max_animals=6, animal_species="SHEEP")
+        submission.set_policy_config(cfg)
+        board = [[None for _ in range(10)] for _ in range(10)]
+        board[1][1] = {"kind": "PASTURE", "animal": "SHEEP", "fed_today": False,
+                       "cared_today": False, "fertilizer_available": True, "yield_units": 1}
+        farm = {"tiles": board, "hands": [[1, 1]]}
+        obs = {"private": {"shed": {"WHEAT": 3},
+                            "inventories": [{}, {"WHEAT": 1}]},
+               "market": {"prices": {"WHEAT": 25}}}
+        self.assertEqual(submission.animal_hand_actions(obs, farm), [["FEED"]])
+        sale_obs = {"player": 0, "farms": [farm],
+                    "private": {"shed": {"WHEAT": 3}},
+                    "market": {"prices": {"WHEAT": 25}}}
+        self.assertEqual(submission.sell_orders(sale_obs), [["SELL", "WHEAT", 1]])
+        self.assertEqual(submission.animal_goals({"sheep_goal": 3, "cow_goal": 2}),
+                         {"SHEEP": 3, "COW": 2})
 
     def test_crop_not_harvested_before_documented_first_yield(self):
         farm = {"tiles": [[{"kind": "PLANT", "crop": "WHEAT", "planted_day": 0,
@@ -143,6 +165,17 @@ class PolicyTests(unittest.TestCase):
         obs = {"player": 1, "step": 12, "farms": [{}, {"money": 3000, "hands": []}],
                "private": {"seeds": {"WHEAT": 0, "CARROT": 0}}}
         self.assertEqual(seeded_random_agent(42)(obs), seeded_random_agent(42)(obs))
+
+    def test_replay_opponent_returns_recorded_action(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "replay.json"
+            path.write_text(json.dumps({"steps": [[
+                {"action": {"farmer": ["PASS"]}},
+                {"action": {"farmer": ["BUILD_PASTURE"], "hands": [], "market": []}},
+            ]]}), encoding="utf-8")
+            agent = replay_action_agent(path, player_index=1)
+            self.assertEqual(agent({"step": 0}),
+                             {"farmer": ["BUILD_PASTURE"], "hands": [], "market": []})
 
 
 if __name__ == "__main__":

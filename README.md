@@ -393,11 +393,32 @@ Run one full game and save its replay and summary:
 python experiments/run_games.py --seeds 1000 --opponent random
 ```
 
+Run one fresh full game, save an interactive HTML replay, and open it in your
+default browser:
+
+```bash
+python experiments/run_games.py --seeds 1000 --opponent random --watch
+```
+
+`--watch` requires exactly one seed. The command prints the saved `.html` and
+`.json` replay paths when the game finishes.
+
 Run 50 full games:
 
 ```bash
 python experiments/run_games.py --start-seed 1000 --num-games 50 --opponent random
 ```
+
+Stress-test one game against actions recorded from a replay (the trailing `1`
+selects the opponent/player 1 from that replay):
+
+```bash
+python experiments/run_games.py --seeds 1000 --opponent replay:replays/kaggle_game.json:1
+```
+
+This replays the recorded actions as a fixed opponent. It does not adapt to the
+new game state, so use it as a specific stress test rather than the only
+opponent for optimization.
 
 Analyze a replay using the path printed by `run_games.py`:
 

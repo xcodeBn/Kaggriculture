@@ -63,6 +63,12 @@ CONFIG: Dict[str, Any] = {
     # Hiring
     "hire_enabled": True,
 
+    # Optional livestock policy. Disabled in the manual baseline until tested.
+    "max_animals": 0,
+    "animal_species": "SHEEP",
+    "sheep_goal": 0,
+    "cow_goal": 0,
+
     # Navigation
     "prefer_nearest_action": True,
 }
@@ -134,6 +140,12 @@ ANIMAL_PRODUCTS = {
     "EGG": "GOOSE",
     "MILK": "COW",
     "WOOL": "SHEEP",
+}
+
+ANIMAL_INFO = {
+    "GOOSE": {"cost": 300, "structure": "COOP", "product": "EGG"},
+    "COW": {"cost": 400, "structure": "PASTURE", "product": "MILK"},
+    "SHEEP": {"cost": 500, "structure": "PASTURE", "product": "WOOL"},
 }
 
 SHOP_DEMAND = {
@@ -432,6 +444,123 @@ def find_nearest_plant(
     )
 
 
+def animal_counts(farm: Dict[str, Any], species: str) -> Tuple[int, int]:
+    """Return counts of occupied and empty matching structures."""
+    structure = ANIMAL_INFO[species]["structure"]
+    occupied = empty = 0
+    for row in farm.get("tiles", []):
+        for tile in row:
+            if isinstance(tile, dict) and tile.get("kind") == structure:
+                if tile.get("animal"):
+                    occupied += 1
+                else:
+                    empty += 1
+    return occupied, empty
+
+
+def animal_goals(config: Dict[str, Any]) -> Dict[str, int]:
+    """Read mixed sheep/cow goals, or the older single-species setting."""
+    mixed = {"SHEEP": int(config.get("sheep_goal", 0)),
+             "COW": int(config.get("cow_goal", 0))}
+    mixed = {species: max(0, count) for species, count in mixed.items() if count > 0}
+    if mixed:
+        return mixed
+    species = config.get("animal_species", "SHEEP")
+    count = int(config.get("max_animals", 0))
+    return {species: count} if species in ANIMAL_INFO and count > 0 else {}
+
+
+def animal_hand_actions(obs: Dict[str, Any], farm: Dict[str, Any]) -> List[Optional[List[Any]]]:
+    """Assign distinct animal jobs to hands, respecting each hand's inventory."""
+    goals = animal_goals(CONFIG)
+    hands = farm.get("hands", []) or []
+    if not goals:
+        return [None for _ in hands]
+
+    private = obs.get("private", {}) or {}
+    shed = private.get("shed", {}) or {}
+    inventories = private.get("inventories", []) or []
+    hand_inventories = [inventories[i + 1] if i + 1 < len(inventories) else {}
+                        for i in range(len(hands))]
+    positions = [tuple(position) for position in hands]
+    jobs: List[Dict[str, Any]] = []
+    animals: List[Tuple[int, int, Dict[str, Any]]] = []
+    empty_structures: Dict[str, List[Tuple[int, int]]] = {}
+
+    for y, row in enumerate(farm.get("tiles", [])):
+        for x, tile in enumerate(row):
+            if not isinstance(tile, dict):
+                continue
+            species = tile.get("animal")
+            if species in goals:
+                animals.append((x, y, tile))
+                if not tile.get("fed_today", False):
+                    jobs.append({"priority": 0, "target": (x, y),
+                                 "action": ["FEED"], "needs": "WHEAT"})
+                if tile.get("yield_units", 0) > 0:
+                    jobs.append({"priority": 1, "target": (x, y), "action": ["HARVEST"]})
+                if tile.get("fertilizer_available", False):
+                    jobs.append({"priority": 2, "target": (x, y),
+                                 "action": ["COLLECT_FERTILIZER"]})
+                if not tile.get("cared_today", False):
+                    jobs.append({"priority": 3, "target": (x, y), "action": ["CARE"]})
+            elif tile.get("kind") in {ANIMAL_INFO[s]["structure"] for s in goals} and not tile.get("animal"):
+                empty_structures.setdefault(tile["kind"], []).append((x, y))
+
+    board_size = len(farm.get("tiles", []))
+    half = board_size // 2
+    shed_positions = [(half - 1, half - 1), (half, half - 1),
+                      (half - 1, half), (half, half)]
+
+    held_wheat = sum(int(inv.get("WHEAT", 0)) for inv in hand_inventories)
+    wheat_needed = sum(not tile.get("fed_today", False) for _, _, tile in animals)
+    wheat_to_pick = min(int(shed.get("WHEAT", 0)), max(0, wheat_needed - held_wheat))
+    for position in shed_positions:
+        if wheat_to_pick <= 0:
+            break
+        amount = min(5, wheat_to_pick)
+        jobs.append({"priority": 0, "target": position,
+                     "action": ["PICKUP", "WHEAT", amount]})
+        wheat_to_pick -= amount
+
+    carried_animals = sum(int(inv.get(species, 0)) for inv in inventories
+                          for species in goals)
+    available_places = sum(len(tiles) for tiles in empty_structures.values())
+    stock_left_to_pick = max(0, available_places - carried_animals)
+    place_slots = [position for structure in empty_structures.values() for position in structure]
+    for species in goals:
+        stock = int(shed.get(species, 0))
+        animals_to_pick = min(stock, stock_left_to_pick)
+        for index in range(animals_to_pick):
+            jobs.append({"priority": 4, "target": shed_positions[index % len(shed_positions)],
+                         "action": ["PICKUP", species, 1]})
+        stock_left_to_pick -= animals_to_pick
+
+    slot_index = 0
+    for species in goals:
+        carried = sum(int(inv.get(species, 0)) for inv in inventories)
+        while carried > 0 and slot_index < len(place_slots):
+            position = place_slots[slot_index]
+            jobs.append({"priority": 4, "target": position,
+                         "action": ["PLACE", species], "needs": species})
+            slot_index += 1
+            carried -= 1
+
+    assigned: List[Optional[List[Any]]] = []
+    for position, inventory in zip(positions, hand_inventories):
+        eligible = [job for job in jobs
+                    if not job.get("needs") or inventory.get(job["needs"], 0) > 0]
+        if not eligible:
+            assigned.append(None)
+            continue
+        job = min(eligible, key=lambda item: (
+            item["priority"], distance(position, item["target"])))
+        jobs.remove(job)
+        assigned.append(job["action"] if position == job["target"]
+                        else next_step_toward(position, job["target"]))
+    return assigned
+
+
 # ------------------------------------------------------------
 # Crop lifecycle
 # ------------------------------------------------------------
@@ -521,12 +650,25 @@ def sell_orders(obs: Dict[str, Any]) -> List[List[Any]]:
 
     shed = obs.get("private", {}).get("shed", {})
     prices = obs.get("market", {}).get("prices", {})
+    farms = obs.get("farms", [])
+    player = int(obs.get("player", 0))
+    farm = farms[player] if player < len(farms) else {}
+    animal_count = sum(
+        1 for row in farm.get("tiles", []) for tile in row
+        if isinstance(tile, dict) and tile.get("animal")
+    )
+    wheat_reserve = animal_count * 2
 
     orders: List[List[Any]] = []
 
     for item, quantity in shed.items():
         if quantity <= 0:
             continue
+
+        if item == "WHEAT":
+            quantity = max(0, int(quantity) - wheat_reserve)
+            if quantity <= 0:
+                continue
 
         price = prices.get(item, 0)
 
@@ -831,11 +973,74 @@ class KaggricultureAgent:
                     buy_count,
                 ])
 
+        # E. Buy livestock only for matching empty structures.
+        goals = animal_goals(self.config)
+        if goals:
+            private = obs["private"]
+            inventories = private.get("inventories", [])
+            shed = private.get("shed", {})
+            structures = {ANIMAL_INFO[s]["structure"] for s in goals}
+            empty_structures = sum(
+                1 for row in farm.get("tiles", []) for tile in row
+                if isinstance(tile, dict) and tile.get("kind") in structures
+                and not tile.get("animal")
+            )
+            occupied_by_species = {
+                s: sum(1 for row in farm.get("tiles", []) for tile in row
+                       if isinstance(tile, dict) and tile.get("animal") == s)
+                for s in goals
+            }
+            stock_by_species = {
+                s: int(shed.get(s, 0)) + sum(int(inv.get(s, 0)) for inv in inventories)
+                for s in goals
+            }
+            stock_total = sum(stock_by_species.values())
+            vacant_for_stock = max(0, empty_structures - stock_total)
+            species_order = [s for s in ("COW", "SHEEP", "GOOSE") if s in goals]
+            species_order.extend(s for s in goals if s not in species_order)
+            for animal_species in species_order:
+                deficit = goals[animal_species] - occupied_by_species[animal_species] - stock_by_species[animal_species]
+                animal_price = ANIMAL_INFO[animal_species]["cost"]
+                if (deficit > 0 and vacant_for_stock > 0
+                        and money - self.config["cash_reserve"] >= animal_price):
+                    market_orders.append(["BUY_ANIMAL", animal_species, 1])
+                    break
+
+            animal_n = sum(occupied_by_species.values())
+            wheat_available = int(obs["private"].get("shed", {}).get("WHEAT", 0))
+            wheat_available += sum(int(inv.get("WHEAT", 0)) for inv in inventories)
+            wheat_target = animal_n * 2
+            wheat_price = int(obs.get("market", {}).get("prices", {}).get("WHEAT", 25))
+            wheat_affordable = max(0, int((money - self.config["cash_reserve"])
+                                          // max(1, wheat_price)))
+            wheat_buy = min(10, max(0, wheat_target - wheat_available), wheat_affordable)
+            if animal_n and wheat_buy:
+                market_orders.append(["BUY_PRODUCT", "WHEAT", wheat_buy])
+
         # ----------------------------------------------------
-        # E. Main farmer action
+        # F. Main farmer action
         # ----------------------------------------------------
 
         farmer_action = farmer_basic_action(obs)
+
+        if goals:
+            private = obs["private"]
+            structures = {ANIMAL_INFO[s]["structure"] for s in goals}
+            structure_count = sum(
+                1 for row in farm.get("tiles", []) for tile in row
+                if isinstance(tile, dict) and tile.get("kind") in structures
+            )
+            stock = sum(int(private.get("shed", {}).get(s, 0))
+                        + sum(int(inv.get(s, 0)) for inv in private.get("inventories", []))
+                        for s in goals)
+            if structure_count + stock < sum(goals.values()):
+                farmer_position = tuple(farm["farmer"])
+                empty = find_nearest_plant(farm, farmer_position)
+                if empty is not None:
+                    build_species = next((s for s in ("COW", "SHEEP", "GOOSE") if s in goals), next(iter(goals)))
+                    farmer_action = (["BUILD_" + ANIMAL_INFO[build_species]["structure"]]
+                                     if farmer_position == empty
+                                     else next_step_toward(farmer_position, empty))
 
         # ----------------------------------------------------
         # F. Farm hands
@@ -847,7 +1052,12 @@ class KaggricultureAgent:
 
         hand_actions: List[List[Any]] = []
 
-        for hand in farm.get("hands", []):
+        animal_actions = animal_hand_actions(obs, farm)
+        for hand_index, hand in enumerate(farm.get("hands", [])):
+            animal_action = animal_actions[hand_index] if hand_index < len(animal_actions) else None
+            if animal_action is not None:
+                hand_actions.append(animal_action)
+                continue
             hx, hy = hand
             hand_position = (hx, hy)
 

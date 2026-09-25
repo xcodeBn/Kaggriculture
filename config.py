@@ -18,14 +18,15 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "strawberry_ratio": 1.0, "melon_ratio": 0.80,
     "harvest_buffer_days": 0, "buy_land_enabled": True,
     "buy_land_cash_multiplier": 1.50, "hire_enabled": True,
-    "prefer_nearest_action": True,
+    "prefer_nearest_action": True, "max_animals": 0, "animal_species": "SHEEP",
+    "sheep_goal": 0, "cow_goal": 0,
 }
 
 # kind, lower/upper bounds or categorical choices, mutation scale
 PARAMETERS: dict[str, dict[str, Any]] = {
     "cash_reserve": {"type": "int", "min": 100, "max": 1500},
     "land_reserve": {"type": "int", "min": 0, "max": 2500},
-    "max_hands": {"type": "int", "min": 0, "max": 5},
+    "max_hands": {"type": "int", "min": 0, "max": 8},
     "min_cash_for_hand": {"type": "int", "min": 0, "max": 2500},
     "sell_price_ratio": {"type": "float", "min": 0.50, "max": 1.00},
     "sell_batch_size": {"type": "int", "min": 1, "max": 25},
@@ -38,6 +39,10 @@ PARAMETERS: dict[str, dict[str, Any]] = {
     "buy_land_enabled": {"type": "bool"},
     "hire_enabled": {"type": "bool"},
     "prefer_nearest_action": {"type": "bool"},
+    "max_animals": {"type": "int", "min": 0, "max": 16},
+    "animal_species": {"type": "categorical", "choices": ["SHEEP", "COW", "GOOSE"]},
+    "sheep_goal": {"type": "int", "min": 0, "max": 16},
+    "cow_goal": {"type": "int", "min": 0, "max": 8},
 }
 
 TRAIN_SEEDS = tuple(range(1000, 1010))
@@ -70,6 +75,8 @@ def load_config(path: str | Path | None = None) -> dict[str, Any]:
             if not valid:
                 raise ValueError(f"Invalid type for configuration key {key!r}")
             spec = PARAMETERS.get(key)
+            if spec and spec["type"] == "categorical" and value not in spec["choices"]:
+                raise ValueError(f"Invalid choice for configuration key {key!r}: {value!r}")
             if spec and spec["type"] in {"float", "int"}:
                 if not spec["min"] <= value <= spec["max"]:
                     raise ValueError(f"Configuration value {key!r} must be in "

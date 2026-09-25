@@ -2,6 +2,9 @@
 from __future__ import annotations
 
 import random
+import copy
+import json
+from pathlib import Path
 from typing import Any
 
 from submission import CROP_INFO, CROP_ORDER
@@ -39,5 +42,24 @@ def seeded_random_agent(episode_seed: int):
             farmer = [rng.choice(farmer_ops)]
         hands = [[rng.choice(farmer_ops)] for _ in farm.get("hands", [])]
         return {"farmer": farmer, "hands": hands, "market": market}
+
+    return agent
+
+
+def replay_action_agent(replay_path: str | Path, player_index: int = 1):
+    """Replay one recorded player's actions as a fixed offline stress opponent.
+
+    This is useful for checking a policy against a known game plan. It is not
+    adaptive and should not be used as the sole opponent for optimization.
+    """
+    with Path(replay_path).open(encoding="utf-8") as stream:
+        frames = json.load(stream).get("steps", [])
+
+    def agent(obs: dict[str, Any]) -> dict[str, Any]:
+        step = int(obs.get("step", 0))
+        if 0 <= step < len(frames) and player_index < len(frames[step]):
+            recorded = frames[step][player_index].get("action") or {}
+            return copy.deepcopy(recorded)
+        return {"farmer": ["PASS"], "hands": [], "market": []}
 
     return agent

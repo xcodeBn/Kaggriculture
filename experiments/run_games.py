@@ -3,7 +3,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import platform
 import sys
+import subprocess
+import webbrowser
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Iterable
@@ -14,7 +17,7 @@ if str(ROOT) not in sys.path:
 
 from config import load_config  # noqa: E402
 import submission  # noqa: E402
-from experiments.opponents import seeded_random_agent  # noqa: E402
+from experiments.opponents import replay_action_agent, seeded_random_agent  # noqa: E402
 
 
 def load_environment():
@@ -26,11 +29,23 @@ def load_environment():
 
 
 def run_game(seed: int, opponent: str = "random", config: dict[str, Any] | None = None,
-             steps: int = 720, save_dir: Path | None = None) -> dict[str, Any]:
+             steps: int = 720, save_dir: Path | None = None,
+             watch: bool = False) -> dict[str, Any]:
     make = load_environment()
     submission.set_policy_config(config or load_config())
     env = make("kaggriculture", configuration={"episodeSteps": steps, "seed": seed}, debug=True)
-    opponent_agent = seeded_random_agent(seed) if opponent == "random" else opponent
+    if opponent == "random":
+        opponent_agent = seeded_random_agent(seed)
+    elif opponent.startswith("replay:"):
+        replay_spec = opponent[len("replay:"):]
+        try:
+            replay_path, player_text = replay_spec.rsplit(":", 1)
+            replay_player = int(player_text)
+        except ValueError:
+            replay_path, replay_player = replay_spec, 1
+        opponent_agent = replay_action_agent(replay_path, replay_player)
+    else:
+        opponent_agent = opponent
     env.run([submission.agent, opponent_agent])
     final = env.steps[-1]
     rewards = [float(state.reward or 0) for state in final]
@@ -54,6 +69,14 @@ def run_game(seed: int, opponent: str = "random", config: dict[str, Any] | None 
         with replay_path.open("x", encoding="utf-8") as stream:
             json.dump(env.toJSON(), stream, separators=(",", ":"))
         summary["replay"] = str(replay_path)
+        if watch:
+            viewer_path = save_dir / f"{stem}.html"
+            viewer_path.write_text(env.render(mode="html"), encoding="utf-8")
+            summary["viewer"] = str(viewer_path)
+            if platform.system() == "Darwin":
+                subprocess.run(["open", str(viewer_path.resolve())], check=False)
+            else:
+                webbrowser.open(viewer_path.resolve().as_uri())
         with (save_dir / f"{stem}.summary.json").open("x", encoding="utf-8") as stream:
             json.dump(summary, stream, indent=2)
     return summary
@@ -76,11 +99,16 @@ def main() -> None:
     parser.add_argument("--steps", type=int, default=720)
     parser.add_argument("--config", type=Path)
     parser.add_argument("--output-dir", type=Path, default=ROOT / "replays")
+    parser.add_argument("--watch", action="store_true",
+                        help="render the game as HTML and open it in your browser (one seed only)")
     args = parser.parse_args()
     cfg = load_config(args.config)
+    seeds = seed_list(args.seeds, args.start_seed, args.num_games)
+    if args.watch and len(seeds) != 1:
+        parser.error("--watch requires exactly one game; pass one --seeds value")
     run_dir = args.output_dir / ("run_" + datetime.now().strftime("%Y%m%d_%H%M%S_%f"))
-    for seed in seed_list(args.seeds, args.start_seed, args.num_games):
-        result = run_game(seed, args.opponent, cfg, args.steps, run_dir)
+    for seed in seeds:
+        result = run_game(seed, args.opponent, cfg, args.steps, run_dir, watch=args.watch)
         print(json.dumps(result))
 
 
