@@ -18,6 +18,7 @@ import submission
 from analysis.analyze_replay import analyze_replay
 from experiments.opponents import replay_action_agent, seeded_random_agent
 from experiments.evaluate import evaluate_opponent_pool
+from experiments.promote_config import promote as promote_config, render_submission
 
 
 class PolicyTests(unittest.TestCase):
@@ -175,6 +176,19 @@ class PolicyTests(unittest.TestCase):
     def test_tpe_objective_penalizes_variance(self):
         metrics = {"mean_margin": 100.0, "pooled_std_margin": 20.0}
         self.assertEqual(risk_adjusted_fitness(metrics, 0.25), 95.0)
+
+    def test_promotion_replaces_only_the_competition_config(self):
+        source = ('from typing import Any, Dict\n\n'
+                  'COMPETITION_CONFIG: Dict[str, Any] = {"cash_reserve": 500}\n\n'
+                  'def agent(obs):\n    return {"farmer": ["PASS"]}\n')
+        updated = render_submission(source, dict(DEFAULT_CONFIG))
+        self.assertIn("'cash_reserve'", updated)
+        self.assertIn('def agent(obs):\n    return {"farmer": ["PASS"]}', updated)
+        self.assertNotIn('COMPETITION_CONFIG: Dict[str, Any] = {"cash_reserve": 500}', updated)
+        compile(updated, "submission.py", "exec")
+        with tempfile.TemporaryDirectory() as directory:
+            with self.assertRaises(FileNotFoundError):
+                promote_config(Path(directory) / "missing.json")
 
     def test_replay_parsing(self):
         replay = {"steps": [

@@ -94,34 +94,33 @@ DEFAULT_CONFIG = dict(CONFIG)
 # after processing that action).
 FINAL_ACTION_STEP = 718
 
-# Best policy selected on the fixed-seed replay stress test, then checked on
-# fresh seeds against the recorded replay policy, `starter`, and `random`.
-# Kept inline so the competition-facing file remains standalone.
+# Competition policy settings are embedded here so the submission is standalone.
+# Offline experiments can promote a reviewed JSON config into this block.
 COMPETITION_CONFIG: Dict[str, Any] = {
-    "cash_reserve": 483,
-    "land_reserve": 846,
-    "max_hands": 8,
-    "min_cash_for_hand": 0,
-    "sell_price_ratio": 0.5,
-    "sell_min_price": 1,
-    "sell_batch_size": 10,
-    "town_demand_weight": 1.0,
-    "town_price_weight": 0.3,
-    "town_scarcity_weight": 0.0972134214474414,
-    "wheat_ratio": 1.0,
-    "carrot_ratio": 1.2586055850255504,
-    "tomato_ratio": 1.0,
-    "strawberry_ratio": 1.0592817857061996,
-    "melon_ratio": 0.5675266355987868,
-    "harvest_buffer_days": 0,
-    "buy_land_enabled": False,
-    "buy_land_cash_multiplier": 1.5,
-    "hire_enabled": True,
-    "prefer_nearest_action": True,
-    "max_animals": 8,
-    "animal_species": "COW",
-    "sheep_goal": 0,
-    "cow_goal": 0,
+    'cash_reserve': 483,
+    'land_reserve': 846,
+    'max_hands': 8,
+    'min_cash_for_hand': 0,
+    'sell_price_ratio': 0.5,
+    'sell_min_price': 1,
+    'sell_batch_size': 10,
+    'town_demand_weight': 1.0,
+    'town_price_weight': 0.3,
+    'town_scarcity_weight': 0.0972134214474414,
+    'wheat_ratio': 1.0,
+    'carrot_ratio': 1.2586055850255504,
+    'tomato_ratio': 1.0,
+    'strawberry_ratio': 1.0592817857061996,
+    'melon_ratio': 0.5675266355987868,
+    'harvest_buffer_days': 0,
+    'buy_land_enabled': False,
+    'buy_land_cash_multiplier': 1.5,
+    'hire_enabled': True,
+    'prefer_nearest_action': True,
+    'max_animals': 8,
+    'animal_species': 'COW',
+    'sheep_goal': 0,
+    'cow_goal': 0,
 }
 
 

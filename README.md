@@ -508,6 +508,18 @@ Compare an optimized config to the immutable baseline on the same seeds:
 python -m experiments.compare_configs experiments/results/RUN/config_best.json --seeds 1000 1001 1002 1003 1004 1005 1006 1007 1008 1009
 ```
 
+Preview promotion of a result into the competition agent, then apply it only
+after reviewing the diff:
+
+```bash
+python -m experiments.promote_config experiments/results/tpe_RUN/config_best.json
+python -m experiments.promote_config experiments/results/tpe_RUN/config_best.json --apply
+```
+
+Promotion changes only the `COMPETITION_CONFIG` block in `submission.py` and
+saves the previous submission in an ignored `experiments/results/promotion_*`
+directory. It does not submit the agent to Kaggle.
+
 The optimizer writes per-candidate and per-generation CSV files plus JSON
 training, validation, and holdout reports under `experiments/results/`. Replay
 analysis reports directly observable action counts and leaves production,
