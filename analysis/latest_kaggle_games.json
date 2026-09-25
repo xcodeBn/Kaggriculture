@@ -1,0 +1,424 @@
+{
+  "matches": [
+    {
+      "file": "113076092.json",
+      "episode": "113076092",
+      "seed": 1302005287,
+      "opponent": "GusNicho",
+      "own_seat": 0,
+      "own_money": 8111.0,
+      "opponent_money": 144750.0,
+      "result": "loss",
+      "own_hires": 90,
+      "opponent_hires": 205,
+      "own_animals": {},
+      "opponent_animals": {
+        "SHEEP": 16,
+        "COW": 2
+      },
+      "own_crops": {
+        "WHEAT": 17,
+        "STRAWBERRY": 13,
+        "CARROT": 27
+      },
+      "opponent_crops": {
+        "WHEAT": 16,
+        "CARROT": 14,
+        "MELON": 16,
+        "TOMATO": 5,
+        "STRAWBERRY": 19
+      },
+      "own_animal_actions": 0,
+      "opponent_animal_actions": 984
+    },
+    {
+      "file": "113234468.json",
+      "episode": "113234468",
+      "seed": 279093469,
+      "opponent": "Alizen James",
+      "own_seat": 0,
+      "own_money": 7694.0,
+      "opponent_money": 51886.0,
+      "result": "loss",
+      "own_hires": 240,
+      "opponent_hires": 330,
+      "own_animals": {
+        "COW": 8
+      },
+      "opponent_animals": {
+        "SHEEP": 4,
+        "COW": 4
+      },
+      "own_crops": {
+        "CARROT": 7,
+        "WHEAT": 73
+      },
+      "opponent_crops": {
+        "STRAWBERRY": 10,
+        "WHEAT": 50,
+        "MELON": 33
+      },
+      "own_animal_actions": 640,
+      "opponent_animal_actions": 615
+    },
+    {
+      "file": "113235655.json",
+      "episode": "113235655",
+      "seed": 573901232,
+      "opponent": "BSCode",
+      "own_seat": 0,
+      "own_money": 44824.0,
+      "opponent_money": 60712.0,
+      "result": "loss",
+      "own_hires": 240,
+      "opponent_hires": 255,
+      "own_animals": {
+        "COW": 8
+      },
+      "opponent_animals": {
+        "GOOSE": 8
+      },
+      "own_crops": {
+        "CARROT": 55,
+        "WHEAT": 2,
+        "STRAWBERRY": 5
+      },
+      "opponent_crops": {
+        "MELON": 20,
+        "WHEAT": 157,
+        "CARROT": 173
+      },
+      "own_animal_actions": 640,
+      "opponent_animal_actions": 400
+    },
+    {
+      "file": "113236825.json",
+      "episode": "113236825",
+      "seed": 652893707,
+      "opponent": "Dharmeswar Basumatary",
+      "own_seat": 1,
+      "own_money": 18843.0,
+      "opponent_money": 25488.0,
+      "result": "loss",
+      "own_hires": 240,
+      "opponent_hires": 288,
+      "own_animals": {
+        "COW": 8
+      },
+      "opponent_animals": {
+        "GOOSE": 10,
+        "COW": 3,
+        "SHEEP": 5
+      },
+      "own_crops": {
+        "CARROT": 5,
+        "WHEAT": 23,
+        "STRAWBERRY": 14
+      },
+      "opponent_crops": {
+        "MELON": 10,
+        "WHEAT": 77,
+        "STRAWBERRY": 9
+      },
+      "own_animal_actions": 640,
+      "opponent_animal_actions": 934
+    },
+    {
+      "file": "113238087.json",
+      "episode": "113238087",
+      "seed": 1116142287,
+      "opponent": "Odilon Yehouenou",
+      "own_seat": 1,
+      "own_money": 70525.0,
+      "opponent_money": 6722.0,
+      "result": "win",
+      "own_hires": 240,
+      "opponent_hires": 20,
+      "own_animals": {
+        "COW": 8
+      },
+      "opponent_animals": {
+        "GOOSE": 1
+      },
+      "own_crops": {
+        "CARROT": 14,
+        "WHEAT": 22,
+        "STRAWBERRY": 12
+      },
+      "opponent_crops": {
+        "WHEAT": 31,
+        "CARROT": 33,
+        "MELON": 1
+      },
+      "own_animal_actions": 640,
+      "opponent_animal_actions": 106
+    },
+    {
+      "file": "113239264.json",
+      "episode": "113239264",
+      "seed": 1467074210,
+      "opponent": "Yudha Eka Saputra",
+      "own_seat": 1,
+      "own_money": 62548.0,
+      "opponent_money": 27987.0,
+      "result": "win",
+      "own_hires": 240,
+      "opponent_hires": 140,
+      "own_animals": {
+        "COW": 8
+      },
+      "opponent_animals": {},
+      "own_crops": {
+        "CARROT": 17,
+        "WHEAT": 4,
+        "STRAWBERRY": 15
+      },
+      "opponent_crops": {
+        "WHEAT": 49,
+        "MELON": 37
+      },
+      "own_animal_actions": 640,
+      "opponent_animal_actions": 0
+    },
+    {
+      "file": "113240422.json",
+      "episode": "113240422",
+      "seed": 1999469779,
+      "opponent": "Jenny Luo",
+      "own_seat": 1,
+      "own_money": 73765.0,
+      "opponent_money": 58185.0,
+      "result": "win",
+      "own_hires": 240,
+      "opponent_hires": 207,
+      "own_animals": {
+        "COW": 8
+      },
+      "opponent_animals": {
+        "COW": 8,
+        "GOOSE": 2,
+        "SHEEP": 4
+      },
+      "own_crops": {
+        "CARROT": 7,
+        "STRAWBERRY": 15,
+        "WHEAT": 4
+      },
+      "opponent_crops": {
+        "MELON": 10,
+        "CARROT": 53,
+        "TOMATO": 6,
+        "WHEAT": 4,
+        "STRAWBERRY": 6
+      },
+      "own_animal_actions": 640,
+      "opponent_animal_actions": 498
+    },
+    {
+      "file": "113241592.json",
+      "episode": "113241592",
+      "seed": 962709836,
+      "opponent": "Kohei",
+      "own_seat": 0,
+      "own_money": 3306.0,
+      "opponent_money": 23929.0,
+      "result": "loss",
+      "own_hires": 240,
+      "opponent_hires": 210,
+      "own_animals": {
+        "COW": 8
+      },
+      "opponent_animals": {
+        "COW": 11,
+        "SHEEP": 4
+      },
+      "own_crops": {
+        "CARROT": 5,
+        "WHEAT": 62,
+        "STRAWBERRY": 6
+      },
+      "opponent_crops": {
+        "WHEAT": 51,
+        "STRAWBERRY": 2
+      },
+      "own_animal_actions": 640,
+      "opponent_animal_actions": 986
+    },
+    {
+      "file": "113242748.json",
+      "episode": "113242748",
+      "seed": 1049440258,
+      "opponent": "Kawa_pt",
+      "own_seat": 1,
+      "own_money": 72953.0,
+      "opponent_money": 51257.0,
+      "result": "win",
+      "own_hires": 256,
+      "opponent_hires": 240,
+      "own_animals": {
+        "COW": 8
+      },
+      "opponent_animals": {
+        "GOOSE": 1,
+        "SHEEP": 1,
+        "COW": 1
+      },
+      "own_crops": {
+        "CARROT": 5,
+        "WHEAT": 2,
+        "STRAWBERRY": 17
+      },
+      "opponent_crops": {
+        "MELON": 11,
+        "CARROT": 14,
+        "WHEAT": 119
+      },
+      "own_animal_actions": 640,
+      "opponent_animal_actions": 264
+    },
+    {
+      "file": "113243959.json",
+      "episode": "113243959",
+      "seed": 1769542283,
+      "opponent": "Ivan Berrutto",
+      "own_seat": 0,
+      "own_money": 81577.0,
+      "opponent_money": 30036.0,
+      "result": "win",
+      "own_hires": 240,
+      "opponent_hires": 120,
+      "own_animals": {
+        "COW": 8
+      },
+      "opponent_animals": {},
+      "own_crops": {
+        "CARROT": 7,
+        "STRAWBERRY": 17
+      },
+      "opponent_crops": {
+        "MELON": 126
+      },
+      "own_animal_actions": 640,
+      "opponent_animal_actions": 0
+    },
+    {
+      "file": "113245140.json",
+      "episode": "113245140",
+      "seed": 1258421946,
+      "opponent": "Aleksander Sachuk",
+      "own_seat": 0,
+      "own_money": 9346.0,
+      "opponent_money": 130044.0,
+      "result": "loss",
+      "own_hires": 240,
+      "opponent_hires": 320,
+      "own_animals": {
+        "COW": 8
+      },
+      "opponent_animals": {
+        "SHEEP": 12,
+        "COW": 3
+      },
+      "own_crops": {
+        "CARROT": 31,
+        "WHEAT": 3,
+        "STRAWBERRY": 12
+      },
+      "opponent_crops": {
+        "MELON": 20,
+        "WHEAT": 27,
+        "CARROT": 7,
+        "STRAWBERRY": 34
+      },
+      "own_animal_actions": 640,
+      "opponent_animal_actions": 907
+    },
+    {
+      "file": "113246321.json",
+      "episode": "113246321",
+      "seed": 1069778278,
+      "opponent": "CarlitrosParra",
+      "own_seat": 0,
+      "own_money": 33502.0,
+      "opponent_money": 31824.0,
+      "result": "win",
+      "own_hires": 240,
+      "opponent_hires": 320,
+      "own_animals": {
+        "COW": 8
+      },
+      "opponent_animals": {
+        "SHEEP": 2,
+        "COW": 4
+      },
+      "own_crops": {
+        "CARROT": 33,
+        "WHEAT": 10,
+        "STRAWBERRY": 8
+      },
+      "opponent_crops": {
+        "MELON": 25,
+        "WHEAT": 62,
+        "STRAWBERRY": 47
+      },
+      "own_animal_actions": 640,
+      "opponent_animal_actions": 419
+    },
+    {
+      "file": "113247477.json",
+      "episode": "113247477",
+      "seed": 1355589034,
+      "opponent": "Comet19",
+      "own_seat": 0,
+      "own_money": 47253.0,
+      "opponent_money": 16968.0,
+      "result": "win",
+      "own_hires": 240,
+      "opponent_hires": 280,
+      "own_animals": {
+        "COW": 8
+      },
+      "opponent_animals": {
+        "COW": 14,
+        "GOOSE": 2
+      },
+      "own_crops": {
+        "CARROT": 5,
+        "WHEAT": 41,
+        "STRAWBERRY": 5,
+        "TOMATO": 8
+      },
+      "opponent_crops": {
+        "MELON": 19,
+        "WHEAT": 8,
+        "CARROT": 8,
+        "STRAWBERRY": 7
+      },
+      "own_animal_actions": 640,
+      "opponent_animal_actions": 841
+    }
+  ],
+  "self_play": [
+    {
+      "file": "113075810.json",
+      "episode": "113075810",
+      "names": [
+        "Hassan Bazzoun-dev",
+        "Hassan Bazzoun-dev"
+      ]
+    },
+    {
+      "file": "113233087.json",
+      "episode": "113233087",
+      "names": [
+        "Hassan Bazzoun-dev",
+        "Hassan Bazzoun-dev"
+      ]
+    }
+  ],
+  "unique_episodes": 15,
+  "wins": 7,
+  "losses": 6,
+  "mean_money": 41095.92307692308,
+  "median_money": 44824.0
+}

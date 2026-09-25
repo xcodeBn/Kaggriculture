@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import random
 import copy
+from functools import lru_cache
 import json
 from pathlib import Path
 from typing import Any
@@ -46,20 +47,36 @@ def seeded_random_agent(episode_seed: int):
     return agent
 
 
+@lru_cache(maxsize=16)
+def _load_replay_actions(replay_path: str, player_index: int) -> tuple[dict[str, Any], ...]:
+    """Cache only the action tape, not the much larger observation history."""
+    with Path(replay_path).open(encoding="utf-8") as stream:
+        steps = json.load(stream).get("steps", [])
+    actions = []
+    for frame in steps:
+        if isinstance(frame, list) and 0 <= player_index < len(frame):
+            action = frame[player_index].get("action") or {}
+            actions.append(copy.deepcopy(action))
+        else:
+            actions.append({"farmer": ["PASS"], "hands": [], "market": []})
+    return tuple(actions)
+
+
 def replay_action_agent(replay_path: str | Path, player_index: int = 1):
     """Replay one recorded player's actions as a fixed offline stress opponent.
 
     This is useful for checking a policy against a known game plan. It is not
     adaptive and should not be used as the sole opponent for optimization.
+    kaggle-environments replay frames store a player's response to observation
+    step ``t`` in frame ``t + 1``; the player 0/1 observations are not aligned
+    to the action in the same frame.
     """
-    with Path(replay_path).open(encoding="utf-8") as stream:
-        frames = json.load(stream).get("steps", [])
+    frames = _load_replay_actions(str(Path(replay_path).resolve()), player_index)
 
     def agent(obs: dict[str, Any]) -> dict[str, Any]:
-        step = int(obs.get("step", 0))
-        if 0 <= step < len(frames) and player_index < len(frames[step]):
-            recorded = frames[step][player_index].get("action") or {}
-            return copy.deepcopy(recorded)
+        frame_index = int(obs.get("step", 0)) + 1
+        if 0 <= frame_index < len(frames):
+            return copy.deepcopy(frames[frame_index])
         return {"farmer": ["PASS"], "hands": [], "market": []}
 
     return agent

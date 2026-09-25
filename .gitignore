@@ -30,3 +30,5 @@ references/kaggle_agents/*
 !references/kaggle_agents/README.md
 experiments/results/*
 !experiments/results/.gitkeep
+
+.prompt

@@ -6,15 +6,18 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from config import DEFAULT_CONFIG, PARAMETERS, load_config
 from optimizer.evolve import crossover, mutate
+from optimizer.tpe_search import risk_adjusted_fitness, suggest_config
 import submission
 from analysis.analyze_replay import analyze_replay
 from experiments.opponents import replay_action_agent, seeded_random_agent
+from experiments.evaluate import evaluate_opponent_pool
 
 
 class PolicyTests(unittest.TestCase):
@@ -152,6 +155,27 @@ class PolicyTests(unittest.TestCase):
         finally:
             PARAMETERS.pop("test_category")
 
+    def test_tpe_suggestions_cover_mixed_parameter_types(self):
+        class FakeTrial:
+            def suggest_float(self, name, low, high):
+                return high
+
+            def suggest_int(self, name, low, high):
+                return low
+
+            def suggest_categorical(self, name, choices):
+                return choices[-1]
+
+        config = suggest_config(FakeTrial(), DEFAULT_CONFIG)
+        self.assertEqual(config["cash_reserve"], PARAMETERS["cash_reserve"]["min"])
+        self.assertEqual(config["sell_price_ratio"], PARAMETERS["sell_price_ratio"]["max"])
+        self.assertIs(config["hire_enabled"], True)
+        self.assertEqual(config["animal_species"], "GOOSE")
+
+    def test_tpe_objective_penalizes_variance(self):
+        metrics = {"mean_margin": 100.0, "pooled_std_margin": 20.0}
+        self.assertEqual(risk_adjusted_fitness(metrics, 0.25), 95.0)
+
     def test_replay_parsing(self):
         replay = {"steps": [
             [
@@ -197,10 +221,39 @@ class PolicyTests(unittest.TestCase):
             path.write_text(json.dumps({"steps": [[
                 {"action": {"farmer": ["PASS"]}},
                 {"action": {"farmer": ["BUILD_PASTURE"], "hands": [], "market": []}},
+            ], [
+                {"action": {"farmer": ["NORTH"]}},
+                {"action": {"farmer": ["BUILD_PASTURE"], "hands": [],
+                            "market": [["BUY_SEED", "WHEAT", 2]]}},
             ]]}), encoding="utf-8")
             agent = replay_action_agent(path, player_index=1)
             self.assertEqual(agent({"step": 0}),
-                             {"farmer": ["BUILD_PASTURE"], "hands": [], "market": []})
+                             {"farmer": ["BUILD_PASTURE"], "hands": [],
+                              "market": [["BUY_SEED", "WHEAT", 2]]})
+
+    def test_opponent_pool_uses_same_seeds_and_equal_opponent_weights(self):
+        def fake_eval(config, seeds, opponent, steps):
+            margins = {"random": 100, "starter": -20}[opponent]
+            return {
+                "mean_reward": 50, "median_reward": 50, "min_reward": 0,
+                "max_reward": 100, "std_reward": 50,
+                "mean_opponent_reward": 50 - margins,
+                "mean_margin": margins, "wins": 2 if margins > 0 else 0,
+                "losses": 2 if margins < 0 else 0, "ties": 0,
+                "games": len(seeds), "seeds": list(seeds),
+                "rewards": [50] * len(seeds),
+                "opponent_rewards": [50 - margins] * len(seeds),
+            }
+
+        with patch("experiments.evaluate.evaluate_config", side_effect=fake_eval) as mocked:
+            result = evaluate_opponent_pool(DEFAULT_CONFIG, [4, 5], ["random", "starter"])
+        self.assertEqual(result["mean_margin"], 40)
+        self.assertEqual(result["worst_opponent_mean_margin"], -20)
+        self.assertEqual(result["games"], 4)
+        self.assertEqual(result["wins"], 2)
+        self.assertEqual([call.kwargs["opponent"] for call in mocked.call_args_list],
+                         ["random", "starter"])
+        self.assertTrue(all(call.args[1] == [4, 5] for call in mocked.call_args_list))
 
 
 if __name__ == "__main__":

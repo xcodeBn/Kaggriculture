@@ -412,6 +412,8 @@ Run 50 full games:
 python experiments/run_games.py --start-seed 1000 --num-games 50 --opponent random
 ```
 
+### Kaggle replays and agent references
+
 Put all original Kaggle downloads in `replays/kaggle_replays/`, keeping each
 download's timestamped filename. They stay separate from locally generated
 games and remain local and ignored by Git. Analyze any file by passing its path
@@ -423,15 +425,15 @@ replay):
 python experiments/run_games.py --seeds 1000 --opponent replay:replays/kaggle_replays/kaggle_game.json:1
 ```
 
+This replays the recorded actions as a fixed opponent. It does not adapt to the
+new game state, so use it as a specific stress test rather than the only
+opponent for optimization.
+
 Downloaded high-scoring agent source files belong in
 `references/kaggle_agents/`. Keep them separate from our competition entry
 (`submission.py`) and from replay data. The files are local and ignored by Git;
 we can inspect their strategies, adapt ideas to our agent, or add compatible
 files as offline opponents after checking their interface and dependencies.
-
-This replays the recorded actions as a fixed opponent. It does not adapt to the
-new game state, so use it as a specific stress test rather than the only
-opponent for optimization.
 
 Analyze a replay using the path printed by `run_games.py`:
 
@@ -445,6 +447,60 @@ holdout seed sets):
 ```bash
 python -m optimizer.evolve --population 8 --generations 5 --seed 7
 ```
+
+The search changes the strategy configuration with mutation/crossover and keeps
+the strongest candidates by average money margin. To search across opponents,
+pass a pool; every candidate uses the same training seeds against each member:
+
+```bash
+python -m optimizer.evolve --population 4 --generations 1000 --seed 7 \
+  --train-seeds 1000 1001 1002 --seed-config optimized_config.json \
+  --opponents random starter replay:replays/kaggle_replays/kaggle_game.json:1
+```
+
+Replace `kaggle_game.json` with one of your replay filenames. This example runs
+36,000 full games during candidate training (4 candidates × 3 seeds × 3
+opponents × 1,000 generations), plus baseline, finalist, validation, and
+holdout evaluations. `population.csv` and `generation_metrics.csv` are updated
+after every completed generation, and `config_best_training.json` tracks the
+best training candidate so far. The selected final config is still chosen by
+validation; holdout is only reported at the end. More generations cannot
+guarantee a perfect agent, and too many generations on a small seed set can
+overfit. Increase the training seed set for a serious long run.
+
+### Bayesian search with Optuna
+
+The project also includes a second offline search method using Optuna's
+Tree-structured Parzen Estimator (TPE). TPE uses results from earlier trials
+to choose later configurations and handles the mix of bounded numbers,
+booleans, and categorical animal choices in this policy. Install the optional
+optimizer dependency with:
+
+```bash
+python -m pip install -r requirements-optimizer.txt
+```
+
+Run a 50-trial search with the measured config as a starting candidate and a
+pool of local opponents:
+
+```bash
+python -m optimizer.tpe_search --trials 50 --seed 7 \
+  --seed-config optimized_config.json \
+  --opponents random starter replay:replays/kaggle_replays/kaggle_game.json:1
+```
+
+For convenience, `./train.sh` automatically picks the highest-numbered
+timestamped replay JSON in `replays/kaggle_replays/` and determines which
+player in it is the opponent. It defaults to 50 trials. You can set
+`TRIALS=100 ./train.sh` for a longer search, or pass a replay path and player
+index explicitly: `./train.sh replays/kaggle_replays/113247477.json 1`.
+
+All candidates use the same training seeds. TPE chooses promising candidates
+from training results; finalists are checked on validation seeds, and the
+holdout set is evaluated only after validation selects a config. Results are
+saved under `experiments/results/tpe_*/`. The competition-facing
+`submission.py` does not import Optuna. Fitness uses mean money margin with a
+small penalty for variation across games.
 
 Compare an optimized config to the immutable baseline on the same seeds:
 

@@ -11,7 +11,7 @@ from typing import Any
 
 from config import (DEFAULT_CONFIG, HOLDOUT_SEEDS, PARAMETERS, TRAIN_SEEDS,
                     VALIDATION_SEEDS, load_config)
-from experiments.evaluate import evaluate_config
+from experiments.evaluate import evaluate_opponent_pool
 
 
 def random_value(spec: dict[str, Any], rng: random.Random) -> Any:
@@ -58,18 +58,37 @@ def _write_json(path: Path, value: Any) -> None:
     path.write_text(json.dumps(value, indent=2, sort_keys=True), encoding="utf-8")
 
 
+def _write_csv(path: Path, fields: list[str], rows: list[dict[str, Any]]) -> None:
+    with path.open("w", newline="", encoding="utf-8") as stream:
+        writer = csv.DictWriter(stream, fieldnames=fields)
+        writer.writeheader()
+        writer.writerows(rows)
+
+
+def _append_csv(path: Path, fields: list[str], row: dict[str, Any]) -> None:
+    write_header = not path.exists() or path.stat().st_size == 0
+    with path.open("a", newline="", encoding="utf-8") as stream:
+        writer = csv.DictWriter(stream, fieldnames=fields)
+        if write_header:
+            writer.writeheader()
+        writer.writerow(row)
+        stream.flush()
+
+
 def optimize(population_size: int = 8, generations: int = 5, seed: int = 7,
              train_seeds: tuple[int, ...] = TRAIN_SEEDS,
              validation_seeds: tuple[int, ...] = VALIDATION_SEEDS,
              holdout_seeds: tuple[int, ...] = HOLDOUT_SEEDS,
              output_root: Path | None = None, steps: int = 720,
              opponent: str = "random",
-             seed_config_paths: tuple[Path, ...] = ()) -> Path:
+             seed_config_paths: tuple[Path, ...] = (),
+             opponents: tuple[str, ...] | None = None) -> Path:
     rng = random.Random(seed)
     output_root = output_root or Path(__file__).resolve().parents[1] / "experiments" / "results"
     run_dir = output_root / ("run_" + datetime.now().strftime("%Y%m%d_%H%M%S_%f"))
     run_dir.mkdir(parents=True, exist_ok=False)
     baseline = load_config()
+    opponent_pool = tuple(opponents or (opponent,))
     population = [dict(baseline)]
     for path in seed_config_paths:
         if len(population) >= population_size:
@@ -82,13 +101,14 @@ def optimize(population_size: int = 8, generations: int = 5, seed: int = 7,
     candidate_rows: list[dict[str, Any]] = []
     generation_rows: list[dict[str, Any]] = []
     candidate_num = 0
-    baseline_score = evaluate_config(baseline, train_seeds, opponent=opponent, steps=steps)
+    baseline_score = evaluate_opponent_pool(baseline, train_seeds, opponent_pool, steps=steps)
+    print(f"baseline training_margin={baseline_score['mean_margin']:.3f}", flush=True)
     for generation in range(generations):
         scored = []
         for candidate in population:
             candidate_id = f"c{candidate_num:04d}"
             candidate_num += 1
-            metrics = evaluate_config(candidate, train_seeds, opponent=opponent, steps=steps)
+            metrics = evaluate_opponent_pool(candidate, train_seeds, opponent_pool, steps=steps)
             evaluations[candidate_id] = {"config": candidate, "training": metrics}
             # The competition objective is relative wealth: maximize margin
             # against the opponent, not just our own cash. A candidate can
@@ -97,15 +117,30 @@ def optimize(population_size: int = 8, generations: int = 5, seed: int = 7,
             scored.append((fitness, candidate_id, candidate))
             print(f"generation={generation} candidate={candidate_id} "
                   f"training_margin={fitness:.3f}", flush=True)
-            candidate_rows.append({"generation": generation, "candidate_id": candidate_id,
-                                   "fitness": fitness,
-                                   "validation_score": "",
-                                   "parameters": json.dumps(candidate, sort_keys=True)})
+            row = {"generation": generation, "candidate_id": candidate_id,
+                   "fitness": fitness, "validation_score": "",
+                   "parameters": json.dumps(candidate, sort_keys=True)}
+            candidate_rows.append(row)
+            _append_csv(run_dir / "population.csv",
+                        ["generation", "candidate_id", "fitness", "validation_score", "parameters"],
+                        row)
+            best_so_far = max(evaluations.values(), key=lambda result: result["training"]["mean_margin"])
+            _write_json(run_dir / "config_best_training.json", best_so_far["config"])
         scored.sort(key=lambda row: row[0], reverse=True)
         generation_rows.append({"generation": generation,
                                 "best_fitness": scored[0][0],
                                 "mean_fitness": sum(x[0] for x in scored) / len(scored),
                                 "baseline_fitness": baseline_score["mean_margin"]})
+        # Flush progress every generation so long searches leave usable records
+        # if they are stopped before validation and holdout complete.
+        _write_csv(run_dir / "population.csv",
+                   ["generation", "candidate_id", "fitness", "validation_score", "parameters"],
+                   candidate_rows)
+        _write_csv(run_dir / "generation_metrics.csv",
+                   ["generation", "best_fitness", "mean_fitness", "baseline_fitness"],
+                   generation_rows)
+        best_so_far = max(evaluations.values(), key=lambda result: result["training"]["mean_margin"])
+        _write_json(run_dir / "config_best_training.json", best_so_far["config"])
         elite_n = max(1, population_size // 4)
         next_population = [dict(row[2]) for row in scored[:elite_n]]
         while len(next_population) < population_size:
@@ -126,36 +161,36 @@ def optimize(population_size: int = 8, generations: int = 5, seed: int = 7,
         reference_matches.append((reference_name, reference_config, match))
     validation_scores = {}
     for candidate_id in finalist_ids:
-        validation_scores[candidate_id] = evaluate_config(
+        validation_scores[candidate_id] = evaluate_opponent_pool(
             evaluations[candidate_id]["config"], validation_seeds,
-            opponent=opponent, steps=steps)
+            opponent_pool, steps=steps)
         print(f"validation candidate={candidate_id} "
               f"mean_margin={validation_scores[candidate_id]['mean_margin']:.3f}", flush=True)
         for row in candidate_rows:
             if row["candidate_id"] == candidate_id:
                 row["validation_score"] = validation_scores[candidate_id]["mean_margin"]
-    baseline_validation = evaluate_config(baseline, validation_seeds,
-                                          opponent=opponent, steps=steps)
+    baseline_validation = evaluate_opponent_pool(baseline, validation_seeds,
+                                                  opponent_pool, steps=steps)
     selected_id = max(finalist_ids, key=lambda cid: validation_scores[cid]["mean_margin"])
     best_config = evaluations[selected_id]["config"]
-    baseline_holdout = evaluate_config(baseline, holdout_seeds,
-                                       opponent=opponent, steps=steps)
-    best_holdout = evaluate_config(best_config, holdout_seeds,
-                                   opponent=opponent, steps=steps)
+    baseline_holdout = evaluate_opponent_pool(baseline, holdout_seeds,
+                                               opponent_pool, steps=steps)
+    best_holdout = evaluate_opponent_pool(best_config, holdout_seeds,
+                                           opponent_pool, steps=steps)
     print("holdout evaluation complete", flush=True)
     best_training = evaluations[selected_id]["training"]
     best_validation = validation_scores[selected_id]
     starting_policy_reports = {}
     for name, reference_config, reference_id in reference_matches:
         reference_training = (evaluations[reference_id]["training"] if reference_id else
-                              evaluate_config(reference_config, train_seeds,
-                                              opponent=opponent, steps=steps))
+                              evaluate_opponent_pool(reference_config, train_seeds,
+                                                     opponent_pool, steps=steps))
         reference_validation = (validation_scores[reference_id] if reference_id else
-                                evaluate_config(reference_config, validation_seeds,
-                                                opponent=opponent, steps=steps))
+                                evaluate_opponent_pool(reference_config, validation_seeds,
+                                                       opponent_pool, steps=steps))
         reference_holdout = (best_holdout if reference_config == best_config else
-                             evaluate_config(reference_config, holdout_seeds,
-                                             opponent=opponent, steps=steps))
+                             evaluate_opponent_pool(reference_config, holdout_seeds,
+                                                    opponent_pool, steps=steps))
         starting_policy_reports[name] = {
             "candidate_id": reference_id, "training": reference_training,
             "validation": reference_validation, "holdout": reference_holdout,
@@ -165,8 +200,8 @@ def optimize(population_size: int = 8, generations: int = 5, seed: int = 7,
                            {"training": baseline_score, "validation": baseline_validation,
                             "holdout": baseline_holdout})
     report = {
-        "opponent": opponent,
-        "selection_metric": "mean_margin",
+        "opponents": list(opponent_pool),
+        "selection_metric": "mean_margin averaged equally across opponents",
         "seed_sets": {"training": list(train_seeds), "validation": list(validation_seeds),
                       "holdout": list(holdout_seeds)},
         "baseline": {"training": baseline_score, "validation": baseline_validation,
@@ -181,13 +216,12 @@ def optimize(population_size: int = 8, generations: int = 5, seed: int = 7,
     _write_json(run_dir / "config_best.json", best_config)
     _write_json(run_dir / "validation.json", report)
     _write_json(run_dir / "holdout.json", {"baseline": baseline_holdout, "optimized": best_holdout})
-    with (run_dir / "population.csv").open("w", newline="", encoding="utf-8") as stream:
-        writer = csv.DictWriter(stream, fieldnames=["generation", "candidate_id", "fitness",
-                                                     "validation_score", "parameters"])
-        writer.writeheader(); writer.writerows(candidate_rows)
-    with (run_dir / "generation_metrics.csv").open("w", newline="", encoding="utf-8") as stream:
-        writer = csv.DictWriter(stream, fieldnames=["generation", "best_fitness", "mean_fitness", "baseline_fitness"])
-        writer.writeheader(); writer.writerows(generation_rows)
+    _write_csv(run_dir / "population.csv",
+               ["generation", "candidate_id", "fitness", "validation_score", "parameters"],
+               candidate_rows)
+    _write_csv(run_dir / "generation_metrics.csv",
+               ["generation", "best_fitness", "mean_fitness", "baseline_fitness"],
+               generation_rows)
     print(json.dumps(report, indent=2))
     return run_dir
 
@@ -198,13 +232,22 @@ def main() -> None:
     parser.add_argument("--generations", type=int, default=5)
     parser.add_argument("--seed", type=int, default=7)
     parser.add_argument("--steps", type=int, default=720)
+    parser.add_argument("--train-seeds", type=int, nargs="+", default=None,
+                        help="fixed seed set shared by every candidate (defaults to the project's training set)")
     parser.add_argument("--opponent", default="random",
                         help="local Kaggriculture opponent agent name, e.g. random or starter")
+    parser.add_argument("--opponents", nargs="+",
+                        help="evaluate against this opponent pool; accepts random, starter, or replay:<path>:<player>")
     parser.add_argument("--seed-config", type=Path, action="append", default=[],
                         help="include a hand-built starting candidate (repeatable)")
     args = parser.parse_args()
+    if args.opponents and args.opponent != "random":
+        parser.error("use either --opponent or --opponents, not both")
     optimize(args.population, args.generations, args.seed, steps=args.steps,
-             opponent=args.opponent, seed_config_paths=tuple(args.seed_config))
+             opponent=args.opponent,
+             opponents=tuple(args.opponents) if args.opponents else None,
+             train_seeds=tuple(args.train_seeds) if args.train_seeds else TRAIN_SEEDS,
+             seed_config_paths=tuple(args.seed_config))
 
 
 if __name__ == "__main__":
