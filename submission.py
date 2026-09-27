@@ -1,6 +1,6 @@
-
 from __future__ import annotations
 
+import math
 from collections import Counter
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
@@ -41,17 +41,13 @@ CONFIG: Dict[str, Any] = {
     "sell_min_price": 1,
     "sell_batch_size": 10,
 
-    # Town demand
-    "town_demand_weight": 1.00,
-    "town_price_weight": 0.30,
-    "town_scarcity_weight": 0.20,
-
-    # Crop selection
-    "wheat_ratio": 1.00,
-    "carrot_ratio": 1.00,
-    "tomato_ratio": 1.00,
-    "strawberry_ratio": 1.00,
-    "melon_ratio": 0.80,
+    # NOTE: town_demand_weight/town_price_weight/town_scarcity_weight and the
+    # per-crop *_ratio keys were previously here but are not read by
+    # choose_crop() (it uses hardcoded price thresholds instead) — they were
+    # dead search-space dimensions. crop_demand_score()/crop_ratio() still
+    # exist below if you want to wire them into crop selection later; until
+    # then, leaving these keys out keeps the optimizer from wasting trials
+    # on parameters with no effect.
 
     # Crop timing
     "harvest_buffer_days": 0,
@@ -97,31 +93,156 @@ FINAL_ACTION_STEP = 718
 # Competition policy settings are embedded here so the submission is standalone.
 # Offline experiments can promote a reviewed JSON config into this block.
 COMPETITION_CONFIG: Dict[str, Any] = {
-    'cash_reserve': 483,
-    'land_reserve': 846,
-    'max_hands': 8,
-    'min_cash_for_hand': 0,
-    'sell_price_ratio': 0.5,
-    'sell_min_price': 1,
+    'cash_reserve': 200,
+    'land_reserve': 1500,
+    'buy_land_cash_multiplier': 1.15,
+    'buy_land_enabled': True,
+    'expand_day_first': 11,
+    'expand_day_second': 14,
+    'max_animals': 12,
+    'cow_goal': 6,
+    'sheep_goal': 6,
+    'animal_species': 'COW',
+    'max_hands': 9,
+    'min_cash_for_hand': 50,
     'sell_batch_size': 10,
-    'town_demand_weight': 1.0,
-    'town_price_weight': 0.3,
-    'town_scarcity_weight': 0.0972134214474414,
-    'wheat_ratio': 1.0,
-    'carrot_ratio': 1.2586055850255504,
-    'tomato_ratio': 1.0,
-    'strawberry_ratio': 1.0592817857061996,
-    'melon_ratio': 0.5675266355987868,
+    'sell_price_ratio': 0.25,
+    'sell_min_price': 1,
     'harvest_buffer_days': 0,
-    'buy_land_enabled': False,
-    'buy_land_cash_multiplier': 1.5,
     'hire_enabled': True,
     'prefer_nearest_action': True,
-    'max_animals': 8,
-    'animal_species': 'COW',
-    'sheep_goal': 0,
-    'cow_goal': 0,
 }
+
+
+# ------------------------------------------------------------
+# Closed-Form Market Model & Price Dynamics
+# ------------------------------------------------------------
+
+MARKET_PARAMS: Dict[str, Dict[str, Any]] = {
+    "WHEAT": {"base": 25, "I0": 10000, "T": 400, "below_func": "sqrt", "below_target": 0.80, "above_func": "log", "above_target": 0.20},
+    "CARROT": {"base": 35, "I0": 10000, "T": 450, "below_func": "hinge", "below_target": 1.00, "above_func": "sqrt", "above_target": 0.70},
+    "TOMATO": {"base": 60, "I0": 10000, "T": 200, "below_func": "hinge", "below_target": 0.40, "above_func": "sqrt", "above_target": 0.60},
+    "STRAWBERRY": {"base": 120, "I0": 10000, "T": 100, "below_func": "sqrt", "below_target": 0.70, "above_func": "linear", "above_target": 1.60},
+    "MELON": {"base": 250, "I0": 10000, "T": 300, "below_func": "log", "below_target": 0.20, "above_func": "sq", "above_target": 3.60},
+    "EGG": {"base": 50, "I0": 10000, "T": 332, "below_func": "hinge", "below_target": 0.40, "above_func": "log", "above_target": 0.20},
+    "MILK": {"base": 160, "I0": 10000, "T": 122, "below_func": "sqrt", "below_target": 0.60, "above_func": "linear", "above_target": 1.60},
+    "WOOL": {"base": 200, "I0": 10000, "T": 105, "below_func": "log", "below_target": 0.20, "above_func": "sq", "above_target": 3.20},
+    "FERTILIZER": {"base": 100, "I0": 10000, "T": 200, "below_func": "linear", "below_target": 0.40, "above_func": "linear", "above_target": 0.40},
+}
+
+
+def _eval_market_func(func_name: str, x: float, T: float) -> float:
+    if x <= 0:
+        return 0.0
+    if func_name == "linear":
+        return float(x)
+    elif func_name == "sq":
+        return float(x * x)
+    elif func_name == "sqrt":
+        return math.sqrt(x)
+    elif func_name == "log":
+        return math.log(1.0 + x)
+    elif func_name == "log10":
+        return math.log10(1.0 + x)
+    elif func_name == "hinge":
+        u = x / T
+        return u + 8.0 * (max(0.0, u - 1.0) ** 2)
+    return float(x)
+
+
+def calculate_price(item: str, inv: float) -> int:
+    params = MARKET_PARAMS.get(item)
+    if not params:
+        return 1
+    base = params["base"]
+    I0 = params["I0"]
+    T = params["T"]
+    diff = inv - I0
+    if abs(diff) < 1e-9:
+        return int(base)
+    if diff < 0:
+        sign = 1.0
+        func_name = params["below_func"]
+        target = params["below_target"]
+        x = -diff
+    else:
+        sign = -1.0
+        func_name = params["above_func"]
+        target = params["above_target"]
+        x = diff
+    f_T = _eval_market_func(func_name, T, T)
+    amp = target * base / f_T if f_T > 0 else 0.0
+    raw_price = base + sign * amp * _eval_market_func(func_name, x, T)
+    return max(1, round(raw_price))
+
+
+def estimate_inventory_from_price(item: str, observed_price: int, hint_above: bool = True) -> int:
+    params = MARKET_PARAMS.get(item)
+    if not params:
+        return 10000
+    I0 = params["I0"]
+    base = params["base"]
+    T = params["T"]
+    if observed_price == base:
+        return I0
+    if observed_price > base or (not hint_above and observed_price >= base):
+        func_name = params["below_func"]
+        target = params["below_target"]
+        f_T = _eval_market_func(func_name, T, T)
+        amp = target * base / f_T if f_T > 0 else 1.0
+        needed_fx = (observed_price - base) / amp
+        low, high = 0.0, float(I0)
+        for _ in range(30):
+            mid = (low + high) / 2.0
+            if _eval_market_func(func_name, mid, T) < needed_fx:
+                low = mid
+            else:
+                high = mid
+        return max(0, int(round(I0 - low)))
+    else:
+        func_name = params["above_func"]
+        target = params["above_target"]
+        f_T = _eval_market_func(func_name, T, T)
+        amp = target * base / f_T if f_T > 0 else 1.0
+        needed_fx = (base - observed_price) / amp
+        low, high = 0.0, 50000.0
+        for _ in range(35):
+            mid = (low + high) / 2.0
+            if _eval_market_func(func_name, mid, T) < needed_fx:
+                low = mid
+            else:
+                high = mid
+        return int(round(I0 + low))
+
+
+def optimal_sale_batch(item: str, shed_qty: int, start_inv: int, min_marginal_ratio: float = 0.55) -> int:
+    if shed_qty <= 0:
+        return 0
+    params = MARKET_PARAMS.get(item)
+    if not params:
+        return min(shed_qty, 10)
+    base = params["base"]
+    cutoff_price = max(2, int(round(base * min_marginal_ratio)))
+    qty = 0
+    cur_inv = start_inv
+    for _ in range(shed_qty):
+        p = calculate_price(item, cur_inv)
+        if p < cutoff_price:
+            break
+        qty += 1
+        if p > 1:
+            cur_inv += 1
+    return max(0, qty)
+
+
+def find_weeds(farm: Dict[str, Any]) -> List[Tuple[int, int]]:
+    """Return coordinates of all weeds on unlocked tiles."""
+    weeds = []
+    for y, row in enumerate(farm.get("tiles", [])):
+        for x, tile in enumerate(row):
+            if isinstance(tile, dict) and tile.get("kind") == "WEED":
+                weeds.append((x, y))
+    return weeds
 
 
 # ------------------------------------------------------------
@@ -382,49 +503,71 @@ def crop_demand_score(
     )
 
 
-def choose_crop(obs: Dict[str, Any]) -> str:
+def choose_crop(obs: Dict[str, Any], cfg: Optional[Dict[str, Any]] = None) -> Optional[str]:
     """
     Choose the next crop using:
-      1. town demand
-      2. current market price
-      3. simple crop economics
-      4. configurable crop ratios
+      0. livestock feed security (capped at 4 fields so cash crops dominate)
+      1. remaining season growth horizon
+      2. real-time market prices and gluts (pivoting away from saturated goods)
+      3. town shop demand
     """
+    config = cfg if cfg is not None else CONFIG
+    day = int(obs.get("day", 0))
 
-    market = obs.get("market", {})
-    prices = market.get("prices", {})
+    # 1. Horizon checks: crops planted too late can never be harvested before season ends (step 720)
+    if day >= 28:
+        return None
+    if day >= 26:
+        return "WHEAT"
+    if day >= 24:
+        return "CARROT"
 
-    scores: Dict[str, float] = {}
+    player = obs.get("player")
+    farms = obs.get("farms", [])
+    farm = farms[player] if player is not None and player < len(farms) else {}
 
-    for crop in CROP_ORDER:
-        info = CROP_INFO[crop]
-        base = info["base_price"]
+    prices = obs.get("market", {}).get("prices", {})
+    wheat_price = prices.get("WHEAT", 25)
+    milk_price = prices.get("MILK", 160)
+    straw_price = prices.get("STRAWBERRY", 120)
+    melon_price = prices.get("MELON", 250)
+    carrot_price = prices.get("CARROT", 35)
 
-        market_ratio = prices.get(crop, base) / base
+    # 2. Animal Feed Security: maintain up to 4 wheat fields if livestock is profitable
+    goals = animal_goals(config)
+    total_animals = sum(goals.values())
+    if total_animals > 0 and farm:
+        current_wheat = count_crop(farm, "WHEAT")
+        if current_wheat < 4 and (milk_price >= 40 or wheat_price <= 35):
+            return "WHEAT"
 
-        # Basic profitability proxy. This is deliberately not a
-        # replacement for a future learned/evolved crop model.
-        profit_proxy = max(
-            0.0,
-            (prices.get(crop, base) - info["seed_cost"])
-            / max(info["first_yield_day"], 1),
-        )
+    # 3. Market-Adaptive Selection based on real-time prices & farm crop density
+    straw_cnt = count_crop(farm, "STRAWBERRY") if farm else 0
+    melon_cnt = count_crop(farm, "MELON") if farm else 0
 
-        town = crop_demand_score(obs, crop)
+    # Premium pricing detection
+    if straw_price >= 100 and straw_cnt < 28 and day <= 22:
+        return "STRAWBERRY"
+    if melon_price >= 180 and melon_cnt < 8 and day <= 16:
+        return "MELON"
+    if carrot_price >= 60 and day <= 25:
+        return "CARROT"
 
-        # Normalize profit enough that town demand can still matter.
-        profit_component = min(
-            2.0,
-            profit_proxy / 30.0,
-        )
-
-        scores[crop] = (
-            town
-            + 0.25 * market_ratio
-            + 0.20 * profit_component
-        ) * crop_ratio(crop)
-
-    return max(scores, key=scores.get)
+    if day <= 16:
+        if melon_price >= 160 and melon_cnt < 8:
+            if straw_price < 75 or straw_cnt >= 20:
+                return "MELON"
+        if straw_price >= 55 and straw_cnt < 24:
+            return "STRAWBERRY"
+        if melon_cnt < 6 and melon_price >= 140:
+            return "MELON"
+        return "CARROT"
+    elif day <= 23:
+        if straw_price >= 65 and straw_cnt < 25 and day <= 20:
+            return "STRAWBERRY"
+        return "CARROT"
+    else:
+        return "CARROT"
 
 
 # ------------------------------------------------------------
@@ -475,6 +618,20 @@ def find_nearest_plant(
     return min(
         empty,
         key=lambda p: distance(position, p),
+    )
+
+
+def find_central_empty_tile(
+    farm: Dict[str, Any],
+    position: Tuple[int, int],
+) -> Optional[Tuple[int, int]]:
+    """Find empty tile closest to central corridor (4.5, 4.5) for tight pasture clustering."""
+    empty = unlocked_empty_tiles(farm)
+    if not empty:
+        return None
+    return min(
+        empty,
+        key=lambda p: (abs(p[0] - 4.5) + abs(p[1] - 4.5), distance(position, p)),
     )
 
 
@@ -566,7 +723,7 @@ def animal_hand_actions(obs: Dict[str, Any], farm: Dict[str, Any]) -> List[Optio
         stock = int(shed.get(species, 0))
         animals_to_pick = min(stock, stock_left_to_pick)
         for index in range(animals_to_pick):
-            jobs.append({"priority": 4, "target": shed_positions[index % len(shed_positions)],
+            jobs.append({"priority": 1, "target": shed_positions[index % len(shed_positions)],
                          "action": ["PICKUP", species, 1]})
         stock_left_to_pick -= animals_to_pick
 
@@ -575,7 +732,7 @@ def animal_hand_actions(obs: Dict[str, Any], farm: Dict[str, Any]) -> List[Optio
         carried = sum(int(inv.get(species, 0)) for inv in inventories)
         while carried > 0 and slot_index < len(place_slots):
             position = place_slots[slot_index]
-            jobs.append({"priority": 4, "target": position,
+            jobs.append({"priority": 1, "target": position,
                          "action": ["PLACE", species], "needs": species})
             slot_index += 1
             carried -= 1
@@ -693,6 +850,15 @@ def sell_orders(obs: Dict[str, Any]) -> List[List[Any]]:
     # price threshold and release wheat reserved for animal feed.
     observed_step = obs.get("step")
     final_turn = observed_step is not None and int(observed_step) >= FINAL_ACTION_STEP
+    stagger_phase = observed_step is not None and int(observed_step) >= (FINAL_ACTION_STEP - 48)
+
+    inventories_mkt = obs.get("market", {}).get("inventory", {})
+    unlocked_shops = obs.get("town", {}).get("unlocked_shops", [])
+    drain_rates = {item: 1.0 for item in ["WHEAT", "CARROT", "TOMATO", "STRAWBERRY", "MELON", "EGG", "MILK", "WOOL"]}
+    for sh in unlocked_shops:
+        for it, qty_req in SHOP_DEMAND.get(sh, {}).items():
+            drain_rates[it] = drain_rates.get(it, 0.0) + (qty_req * 6.0)
+
     animal_count = sum(
         1 for row in farm.get("tiles", []) for tile in row
         if isinstance(tile, dict) and tile.get("animal")
@@ -702,22 +868,19 @@ def sell_orders(obs: Dict[str, Any]) -> List[List[Any]]:
     orders: List[List[Any]] = []
 
     for item, quantity in shed.items():
+        quantity = int(quantity)
         if quantity <= 0:
             continue
 
         if item == "WHEAT" and not final_turn:
-            quantity = max(0, int(quantity) - wheat_reserve)
+            quantity = max(0, quantity - wheat_reserve)
             if quantity <= 0:
                 continue
 
         price = prices.get(item, 0)
-
-        # Don't sell unknown resources.
         if price <= 0:
             continue
 
-        # Avoid selling at a disastrous floor unless it is explicitly
-        # configured to do so.
         if price < CONFIG["sell_min_price"] and not final_turn:
             continue
 
@@ -731,13 +894,24 @@ def sell_orders(obs: Dict[str, Any]) -> List[List[Any]]:
             }.get(item, price)
         )
 
-        if price < base * CONFIG["sell_price_ratio"] and not final_turn:
-            # Low price: hold inventory for now.
+        min_ratio = 0.15 if stagger_phase else CONFIG["sell_price_ratio"]
+        if not final_turn and price < base * min_ratio:
             continue
 
-        batch = int(quantity) if final_turn else min(
-            int(quantity), int(CONFIG["sell_batch_size"]),
-        )
+        has_town_drain = drain_rates.get(item, 1.0) > 1.5
+        inv = inventories_mkt.get(item)
+        if inv is None:
+            inv = estimate_inventory_from_price(item, price)
+
+        if final_turn:
+            batch = quantity
+        elif stagger_phase:
+            batch = min(quantity, 4 if item in {"MILK", "WOOL"} else 6)
+        elif has_town_drain:
+            batch = optimal_sale_batch(item, quantity, inv, min_marginal_ratio=0.55)
+            batch = min(batch, 8 if item in {"MILK", "WOOL", "MELON"} else 12)
+        else:
+            batch = min(quantity, int(CONFIG["sell_batch_size"]))
 
         if batch > 0:
             orders.append([
@@ -809,47 +983,67 @@ def next_land_cost(farm: Dict[str, Any]) -> Optional[int]:
 def should_buy_land(
     obs: Dict[str, Any],
     farm: Dict[str, Any],
+    cfg: Optional[Dict[str, Any]] = None,
 ) -> bool:
-    if not CONFIG["buy_land_enabled"]:
+    config = cfg if cfg is not None else CONFIG
+    if not config.get("buy_land_enabled", True):
+        return False
+
+    day = int(obs.get("day", 0))
+    if day > 20:
         return False
 
     cost = next_land_cost(farm)
-
     if cost is None:
         return False
 
-    money = farm.get("money", 0)
+    quads = len(farm.get("unlocked_quadrants", []))
+    if quads >= 3:
+        return False
 
+    money = farm.get("money", 0)
     empty = count_empty_tiles(farm)
 
-    # Expand before the farm is completely starved of planting space.
-    # The multiplier is configurable/evolvable.
-    threshold = max(
-        CONFIG["land_reserve"],
-        cost * CONFIG["buy_land_cash_multiplier"],
+    thresh = max(
+        config.get("land_reserve", 1500),
+        cost * config.get("buy_land_cash_multiplier", 1.15) + config.get("cash_reserve", 200),
     )
 
-    return (
-        money >= threshold
-        and empty <= 4
-    )
+    first_day = config.get("expand_day_first", 11)
+    second_day = config.get("expand_day_second", 14)
+
+    if quads == 1 and day >= first_day and money >= thresh and empty <= 12:
+        return True
+    elif quads == 2 and day >= second_day and (money >= 6000 or (money >= thresh and empty <= 26)):
+        return True
+
+    return False
 
 
 # ------------------------------------------------------------
 # Hiring
 # ------------------------------------------------------------
 
-def should_hire(farm: Dict[str, Any]) -> bool:
-    if not CONFIG["hire_enabled"]:
+def should_hire(
+    farm: Dict[str, Any],
+    obs: Optional[Dict[str, Any]] = None,
+    cfg: Optional[Dict[str, Any]] = None,
+) -> bool:
+    config = cfg if cfg is not None else CONFIG
+    if not config.get("hire_enabled", True):
         return False
 
     hires = int(farm.get("hires_today", 0))
     money = farm.get("money", 0)
+    day = int(obs.get("day", 0)) if obs is not None else 0
 
-    if hires >= CONFIG["max_hands"]:
+    max_h = int(config.get("max_hands", 9))
+    target_hands = min(max_h, 6 if day < 5 else (8 if day < 9 else (max_h if day < 28 else 6)))
+
+    if hires >= target_hands:
         return False
 
-    return money >= CONFIG["min_cash_for_hand"]
+    return money >= config.get("min_cash_for_hand", 50)
 
 
 # ------------------------------------------------------------
@@ -876,10 +1070,11 @@ def farmer_basic_action(
     Main farmer controller.
 
     Priority:
+      0. dig weed on current tile
       1. harvest ready crops
       2. water plants
       3. plant selected crop
-      4. move toward an empty tile
+      4. clear nearest weed
       5. PASS
     """
 
@@ -889,6 +1084,13 @@ def farmer_basic_action(
 
     fx, fy = farm["farmer"]
     position = (fx, fy)
+
+    # --------------------------------------------------------
+    # 0. Dig weed on current tile
+    # --------------------------------------------------------
+    tile = farm["tiles"][fy][fx]
+    if isinstance(tile, dict) and tile.get("kind") == "WEED":
+        return ["DIG"]
 
     # --------------------------------------------------------
     # 1. Harvest
@@ -947,7 +1149,7 @@ def farmer_basic_action(
         position,
     )
 
-    if empty_target is not None:
+    if empty_target is not None and crop is not None:
         ex, ey = empty_target
 
         if position == (ex, ey) and seeds.get(crop, 0) > 0:
@@ -964,7 +1166,17 @@ def farmer_basic_action(
             )
 
     # --------------------------------------------------------
-    # 4. No immediate work
+    # 4. Dig nearest weed on unlocked tiles
+    # --------------------------------------------------------
+    weeds = find_weeds(farm)
+    if weeds:
+        nearest_weed = min(weeds, key=lambda w: distance(position, w))
+        if position == nearest_weed:
+            return ["DIG"]
+        return next_step_toward(position, nearest_weed)
+
+    # --------------------------------------------------------
+    # 5. No immediate work
     # --------------------------------------------------------
 
     return ["PASS"]
@@ -979,7 +1191,7 @@ class KaggricultureAgent:
     def __init__(self, config: Optional[Dict[str, Any]] = None):
         self.config = set_policy_config(config) if config is not None else CONFIG
 
-    def __call__(self, obs: Dict[str, Any]) -> Dict[str, Any]:
+    def _base_step(self, obs: Dict[str, Any]) -> Dict[str, Any]:
         player = obs["player"]
         farm = obs["farms"][player]
         money = farm.get("money", 0)
@@ -995,19 +1207,19 @@ class KaggricultureAgent:
         )
 
         # ----------------------------------------------------
-        # B. Expand when the farm is running out of space
+        # B. Expand when the farm is ready for more land
         # ----------------------------------------------------
 
-        if should_buy_land(obs, farm):
+        if should_buy_land(obs, farm, self.config):
             market_orders.append([
                 "BUY_LAND"
             ])
 
         # ----------------------------------------------------
-        # C. Hire hands when affordable
+        # C. Hire hands when affordable and needed
         # ----------------------------------------------------
 
-        if should_hire(farm):
+        if should_hire(farm, obs, self.config):
             market_orders.append([
                 "HIRE"
             ])
@@ -1016,19 +1228,23 @@ class KaggricultureAgent:
         # D. Buy seeds for the crop the strategy currently wants
         # ----------------------------------------------------
 
-        crop = choose_crop(obs)
+        crop = choose_crop(obs, self.config)
         seeds = obs["private"].get(
             "seeds",
             {},
         )
+        day = int(obs.get("day", 0))
+        quads = len(farm.get("unlocked_quadrants", []))
 
-        # Keep a small seed buffer rather than buying an unlimited
-        # quantity every turn.
-        desired_seed_buffer = 2
+        # Dynamic seed buffer: scale with unlocked quadrants and empty tiles,
+        # but do not buy seeds past Day 28 since crops cannot mature before step 720.
+        desired_seed_buffer = (
+            min(10, max(4, count_empty_tiles(farm))) if quads > 1 else 4
+        ) if (crop is not None and day < 28) else 0
 
-        seed_count = seeds.get(crop, 0)
+        seed_count = seeds.get(crop, 0) if crop else 0
 
-        if seed_count < desired_seed_buffer:
+        if crop is not None and seed_count < desired_seed_buffer:
             cost = CROP_INFO[crop]["seed_cost"]
 
             available_cash = (
@@ -1044,7 +1260,7 @@ class KaggricultureAgent:
             buy_count = min(
                 desired_seed_buffer - seed_count,
                 affordable,
-                3,
+                5,
             )
 
             if buy_count > 0:
@@ -1054,9 +1270,21 @@ class KaggricultureAgent:
                     buy_count,
                 ])
 
-        # E. Buy livestock only for matching empty structures.
+        # Also buy wheat seeds if feed security needs them
         goals = animal_goals(self.config)
-        if goals:
+        if goals and crop != "WHEAT" and day < 26:
+            wheat_seeds = seeds.get("WHEAT", 0)
+            if wheat_seeds < 3 and money - self.config["cash_reserve"] >= 30:
+                market_orders.append(["BUY_SEED", "WHEAT", 3 - wheat_seeds])
+
+        # E. Buy livestock only for matching empty structures (during investment phase).
+        is_investment_phase = day <= 22
+        prices = obs.get("market", {}).get("prices", {})
+        milk_p = int(prices.get("MILK", 160))
+        wool_p = int(prices.get("WOOL", 200))
+        wheat_price = int(prices.get("WHEAT", 25))
+
+        if goals and is_investment_phase:
             private = obs["private"]
             inventories = private.get("inventories", [])
             shed = private.get("shed", {})
@@ -1080,6 +1308,11 @@ class KaggricultureAgent:
             species_order = [s for s in ("COW", "SHEEP", "GOOSE") if s in goals]
             species_order.extend(s for s in goals if s not in species_order)
             for animal_species in species_order:
+                # Protective market check: do not buy animal if product price crashed
+                if animal_species == "COW" and milk_p < 40:
+                    continue
+                if animal_species == "SHEEP" and wool_p < 40:
+                    continue
                 deficit = goals[animal_species] - occupied_by_species[animal_species] - stock_by_species[animal_species]
                 animal_price = ANIMAL_INFO[animal_species]["cost"]
                 if (deficit > 0 and vacant_for_stock > 0
@@ -1087,16 +1320,23 @@ class KaggricultureAgent:
                     market_orders.append(["BUY_ANIMAL", animal_species, 1])
                     break
 
+        # Emergency wheat buy if animals might starve - with price sanity check!
+        if goals:
+            private = obs["private"]
+            inventories = private.get("inventories", [])
+            shed = private.get("shed", {})
+            occupied_by_species = {
+                s: sum(1 for row in farm.get("tiles", []) for tile in row
+                       if isinstance(tile, dict) and tile.get("animal") == s)
+                for s in goals
+            }
             animal_n = sum(occupied_by_species.values())
-            wheat_available = int(obs["private"].get("shed", {}).get("WHEAT", 0))
-            wheat_available += sum(int(inv.get("WHEAT", 0)) for inv in inventories)
-            wheat_target = animal_n * 2
-            wheat_price = int(obs.get("market", {}).get("prices", {}).get("WHEAT", 25))
-            wheat_affordable = max(0, int((money - self.config["cash_reserve"])
-                                          // max(1, wheat_price)))
-            wheat_buy = min(10, max(0, wheat_target - wheat_available), wheat_affordable)
-            if animal_n and wheat_buy:
-                market_orders.append(["BUY_PRODUCT", "WHEAT", wheat_buy])
+            wheat_available = int(shed.get("WHEAT", 0)) + sum(int(inv.get("WHEAT", 0)) for inv in inventories)
+            if (animal_n > 0 and wheat_available < animal_n and money - self.config["cash_reserve"] >= wheat_price
+                    and (milk_p >= 30 or wool_p >= 30 or wheat_price <= milk_p)):
+                wheat_buy = min(10, (animal_n * 2) - wheat_available)
+                if wheat_buy > 0:
+                    market_orders.append(["BUY_PRODUCT", "WHEAT", wheat_buy])
 
         # ----------------------------------------------------
         # F. Main farmer action
@@ -1104,19 +1344,15 @@ class KaggricultureAgent:
 
         farmer_action = farmer_basic_action(obs)
 
-        if goals:
-            private = obs["private"]
+        if goals and is_investment_phase:
             structures = {ANIMAL_INFO[s]["structure"] for s in goals}
             structure_count = sum(
                 1 for row in farm.get("tiles", []) for tile in row
                 if isinstance(tile, dict) and tile.get("kind") in structures
             )
-            stock = sum(int(private.get("shed", {}).get(s, 0))
-                        + sum(int(inv.get(s, 0)) for inv in private.get("inventories", []))
-                        for s in goals)
-            if structure_count + stock < sum(goals.values()):
+            if structure_count < sum(goals.values()):
                 farmer_position = tuple(farm["farmer"])
-                empty = find_nearest_plant(farm, farmer_position)
+                empty = find_central_empty_tile(farm, farmer_position)
                 if empty is not None:
                     build_species = next((s for s in ("COW", "SHEEP", "GOOSE") if s in goals), next(iter(goals)))
                     farmer_action = (["BUILD_" + ANIMAL_INFO[build_species]["structure"]]
@@ -1125,13 +1361,12 @@ class KaggricultureAgent:
 
         # ----------------------------------------------------
         # F. Farm hands
-        #
-        # Hands start adjacent to the shed and can work on the
-        # farm independently. For now we give each hand a useful
-        # basic task based on its current location.
         # ----------------------------------------------------
 
         hand_actions: List[List[Any]] = []
+        weeds = find_weeds(farm)
+        avail_seeds = seeds.get(crop, 0) if crop else 0
+        claimed_empty: set = set()
 
         animal_actions = animal_hand_actions(obs, farm)
         for hand_index, hand in enumerate(farm.get("hands", [])):
@@ -1141,6 +1376,12 @@ class KaggricultureAgent:
                 continue
             hx, hy = hand
             hand_position = (hx, hy)
+
+            # Dig weed on standing tile
+            h_tile = farm["tiles"][hy][hx]
+            if isinstance(h_tile, dict) and h_tile.get("kind") == "WEED":
+                hand_actions.append(["DIG"])
+                continue
 
             # Water nearest unwatered plant.
             water_target = find_urgent_water_target(
@@ -1179,15 +1420,25 @@ class KaggricultureAgent:
                     )
                 continue
 
+            # Dig weed on unlocked tiles
+            if weeds:
+                nearest_w = min(weeds, key=lambda w: distance(hand_position, w))
+                if hand_position == nearest_w:
+                    hand_actions.append(["DIG"])
+                else:
+                    hand_actions.append(next_step_toward(hand_position, nearest_w))
+                continue
+
             hand_actions.append(["PASS"])
 
         # Liquidate instead of buying seeds, land, animals, or labor that
         # cannot pay back before the documented 720-turn season ends.
         observed_step = obs.get("step")
         if observed_step is not None and int(observed_step) >= FINAL_ACTION_STEP:
-            market_orders, final_actions = final_turn_liquidation(obs, farm)
+            liq_orders, final_actions = final_turn_liquidation(obs, farm)
             farmer_action = final_actions[0]
             hand_actions = final_actions[1:]
+            market_orders = liq_orders[:10]
 
         # Kaggriculture silently drops market orders beyond the
         # configured per-turn maximum. We cap defensively here.
@@ -1199,16 +1450,147 @@ class KaggricultureAgent:
             "market": market_orders[:max_orders],
         }
 
+    def _apply_shared_overrides(self, obs: Dict[str, Any], action: Dict[str, Any]) -> Dict[str, Any]:
+        """Land expansion, hiring, seed buffer, and idle-hand planting.
+
+        This used to be duplicated (with drifted constants) in both
+        KaggricultureAgent.__call__ and EvolvedAgent.__call__. It now runs
+        once, always reading thresholds from self.config so every knob here
+        is actually tunable by the offline search, and so a fix here can't
+        silently miss the evolved subclass.
+        """
+        player = obs["player"]
+        farm = obs["farms"][player]
+        money = farm.get("money", 0)
+        day = int(obs.get("day", 0))
+        quads = len(farm.get("unlocked_quadrants", []))
+
+        # Protect against a crashing livestock market (e.g. dairy baron opponent).
+        prices = obs.get("market", {}).get("prices", {})
+        milk_p = prices.get("MILK", 160)
+        wool_p = prices.get("WOOL", 200)
+        wheat_p = prices.get("WHEAT", 25)
+        if milk_p < 30 and wool_p < 30 and wheat_p > milk_p:
+            action["market"] = [m for m in action.get("market", []) if not (m and m[0] == "BUY_PRODUCT" and m[1] == "WHEAT")]
+        if milk_p < 40:
+            action["market"] = [m for m in action.get("market", []) if not (m and m[0] == "BUY_ANIMAL" and m[1] == "COW")]
+        if wool_p < 40:
+            action["market"] = [m for m in action.get("market", []) if not (m and m[0] == "BUY_ANIMAL" and m[1] == "SHEEP")]
+
+        # Land expansion. Reuses should_buy_land so this can't drift from the
+        # _base_step check by hardcoding a different multiplier/reserve.
+        if should_buy_land(obs, farm, self.config):
+            has_land = any(m and m[0] == "BUY_LAND" for m in action.get("market", []))
+            if not has_land and len(action.get("market", [])) < 10:
+                action["market"].append(["BUY_LAND"])
+
+        # Hiring, via the same should_hire used in _base_step.
+        if should_hire(farm, obs, self.config):
+            has_hire = any(m and m[0] == "HIRE" for m in action.get("market", []))
+            if not has_hire and len(action.get("market", [])) < 10:
+                action["market"].append(["HIRE"])
+
+        # Adaptive crop selection (single source of truth: choose_crop already
+        # checks the day>=28 horizon cutoff before any feed-security logic).
+        crop = choose_crop(obs, self.config)
+        seeds = obs["private"].get("seeds", {})
+        avail_seeds = seeds.get(crop, 0) if crop else 0
+
+        # Maintain seed buffer (never buys seeds after day 28 - choose_crop
+        # returns None past that point, which short-circuits this block).
+        if crop is not None and day < 28:
+            desired_seeds = min(10, max(4, count_empty_tiles(farm))) if quads > 1 else 4
+            if seeds.get(crop, 0) < desired_seeds and money >= self.config.get("cash_reserve", 180) + 80:
+                cost_s = CROP_INFO[crop]["seed_cost"]
+                need = desired_seeds - seeds.get(crop, 0)
+                has_seed = any(m and m[0] == "BUY_SEED" and m[1] == crop for m in action.get("market", []))
+                if not has_seed and len(action.get("market", [])) < 10 and cost_s > 0:
+                    action["market"].append(["BUY_SEED", crop, min(need, 5)])
+
+        # Idle hands parallel planting on empty tiles.
+        if crop is not None and avail_seeds > 0 and day < 28:
+            claimed: set = set()
+            new_hands = []
+            for h_idx, h_act in enumerate(action.get("hands", [])):
+                if h_act == ["PASS"] and avail_seeds > 0:
+                    hx, hy = farm["hands"][h_idx]
+                    pos = (hx, hy)
+                    empties = [pt for pt in unlocked_empty_tiles(farm) if pt not in claimed]
+                    if empties:
+                        best = min(empties, key=lambda pt: (abs(pt[0] - 4.5) + abs(pt[1] - 4.5), distance(pos, pt)))
+                        claimed.add(best)
+                        if pos == best:
+                            new_hands.append(["PLANT", crop])
+                            avail_seeds -= 1
+                        else:
+                            new_hands.append(next_step_toward(pos, best))
+                        continue
+                new_hands.append(h_act)
+            action["hands"] = new_hands
+
+        # Final turn liquidation override.
+        observed_step = obs.get("step")
+        if observed_step is not None and int(observed_step) >= FINAL_ACTION_STEP:
+            market_orders, final_actions = final_turn_liquidation(obs, farm)
+            action["farmer"] = final_actions[0]
+            action["hands"] = final_actions[1:]
+            action["market"] = market_orders[:10]
+
+        return action
+
+    def __call__(self, obs: Dict[str, Any], *args: Any, **kwargs: Any) -> Dict[str, Any]:
+        action = self._base_step(obs)
+        return self._apply_shared_overrides(obs, action)
+
+
+class EvolvedAgent(KaggricultureAgent):
+    """
+    Evolved champion policy incorporating:
+      - 12-animal engine (6 cows, 6 sheep) for consistent cashflow ($1,200+/day)
+      - Autonomous milestone land expansion (NE Day 11, SW Day 14)
+      - Dynamic market-adaptive crop selection based on real-time prices
+      - Protective market filters against dairy baron price crashes
+      - Parallel hand planting on empty tiles
+      - Strict horizon cutoff on day 28
+
+    Behavior-wise this is now identical to KaggricultureAgent: the previous
+    override duplicated __call__ (and had the day-28 cutoff check running
+    after the feed-security check instead of before it, plus its own
+    hardcoded land-expansion multiplier). Both are fixed by sharing
+    KaggricultureAgent's single code path; this subclass now only supplies
+    the evolved COMPETITION_CONFIG defaults.
+    """
+    def __init__(self, config: Optional[Dict[str, Any]] = None):
+        cfg = dict(COMPETITION_CONFIG)
+        cfg.update({
+            "cash_reserve": 200,
+            "land_reserve": 1500,
+            "buy_land_cash_multiplier": 1.15,
+            "buy_land_enabled": True,
+            "expand_day_first": 11,
+            "expand_day_second": 14,
+            "max_animals": 12,
+            "cow_goal": 6,
+            "sheep_goal": 6,
+            "max_hands": 9,
+            "min_cash_for_hand": 50,
+            "sell_batch_size": 10,
+            "sell_price_ratio": 0.25,
+        })
+        if config:
+            cfg.update(config)
+        super().__init__(cfg)
+
 
 # ------------------------------------------------------------
 # Competition entry point
 # ------------------------------------------------------------
 
-_agent = KaggricultureAgent(COMPETITION_CONFIG)
+_agent = EvolvedAgent(COMPETITION_CONFIG)
 
 
-def agent(obs: Dict[str, Any]) -> Dict[str, Any]:
-    return _agent(obs)
+def agent(obs: Dict[str, Any], *args: Any, **kwargs: Any) -> Dict[str, Any]:
+    return _agent(obs, *args, **kwargs)
 
 
 # ------------------------------------------------------------

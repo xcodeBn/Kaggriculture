@@ -26,9 +26,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
 PARAMETERS: dict[str, dict[str, Any]] = {
     "cash_reserve": {"type": "int", "min": 100, "max": 1500},
     "land_reserve": {"type": "int", "min": 0, "max": 2500},
-    "max_hands": {"type": "int", "min": 0, "max": 8},
+    "max_hands": {"type": "int", "min": 0, "max": 10},
     "min_cash_for_hand": {"type": "int", "min": 0, "max": 2500},
-    "sell_price_ratio": {"type": "float", "min": 0.50, "max": 1.00},
+    "sell_price_ratio": {"type": "float", "min": 0.15, "max": 1.00},
     "sell_batch_size": {"type": "int", "min": 1, "max": 25},
     "buy_land_cash_multiplier": {"type": "float", "min": 1.0, "max": 3.0},
     "town_demand_weight": {"type": "float", "min": 0.0, "max": 3.0},

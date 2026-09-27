@@ -22,10 +22,10 @@ from experiments.opponents import replay_action_agent, seeded_random_agent  # no
 
 def load_environment():
     try:
-        from kaggle_environments import make
+        from evoexperiments.env_loader import get_clean_make
+        return get_clean_make()
     except ImportError as exc:
         raise RuntimeError("Install requirements.txt to run the local simulator") from exc
-    return make
 
 
 def run_game(seed: int, opponent: str = "random", config: dict[str, Any] | None = None,
