@@ -1,4 +1,4 @@
-# 🌾 Kaggriculture AI: Autonomous Decision Intelligence & Simulation Optimization
+# Kaggriculture AI: Autonomous Decision Intelligence & Simulation Optimization
 
 An autonomous decision-making agent and simulation-in-the-loop optimization framework designed for the **[Kaggle Kaggriculture Competition](https://www.kaggle.com/competitions/kaggriculture)** (Featured Competition, $50,000 USD prize pool, 10,000+ teams).
 
@@ -6,7 +6,7 @@ The competition models complex enterprise operations: turn-based multi-agent res
 
 ---
 
-## 🚀 Key Highlights & Verified Results
+## Key Highlights & Verified Results
 
 * **+459% Holdout Score Improvement:** Lifted performance from a hand-crafted crop baseline of **$7,957** to **$44,464** on untouched holdout seeds.
 * **100% Holdout Win Rate (15/15):** Converted a negative net margin of **-$6,005** into **+$39,536**, achieving a sweep against official baselines and recorded human match policies.
@@ -17,7 +17,7 @@ The competition models complex enterprise operations: turn-based multi-agent res
 
 ---
 
-## 🏛️ System Architecture
+## System Architecture
 
 ```mermaid
 flowchart TD
@@ -47,7 +47,7 @@ flowchart TD
 
 ---
 
-## 📊 Evolutionary Progression
+## Evolutionary Progression
 
 The agent evolved through distinct architectural iterations guided by replay failure analysis and automated optimization:
 
@@ -60,7 +60,7 @@ The agent evolved through distinct architectural iterations guided by replay fai
 
 ---
 
-## 📁 Repository Structure
+## Repository Structure
 
 ```
 ├── main.py                     # Competition submission entry point (Grandmaster Top-Meta Agent)
@@ -100,7 +100,7 @@ The agent evolved through distinct architectural iterations guided by replay fai
 
 ---
 
-## 🛠️ Quickstart & Usage
+## Quickstart & Usage
 
 ### 1. Installation
 
@@ -155,6 +155,6 @@ python3 -m optimizer.tpe_search --trials 50 --n-jobs 4
 
 ---
 
-## 📜 License
+## License
 
 This project is licensed under the Apache 2.0 License - see the competition details in [GAME_RULES.md](GAME_RULES.md) for official environment specifics.
