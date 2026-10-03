@@ -9,7 +9,8 @@ echo "Log file: train_overnight.log"
 echo "Checkpoints saved to: evoexperiments/checkpoints/best_config.json"
 echo "=========================================================="
 
-export PYTHONPATH="/Users/apple/Desktop/kragliculture:$PYTHONPATH"
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+export PYTHONPATH="$DIR:$PYTHONPATH"
 
 caffeinate -i python3 evoexperiments/train.py \
   --generations 150 \

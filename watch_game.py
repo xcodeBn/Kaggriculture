@@ -23,49 +23,72 @@ import submission
 from evoexperiments.league_agents import DairyBaronAgent, SwarmPlanterAgent
 
 def parse_agent(name: str):
-    name = name.lower().strip()
-    if name in ("submission", "champion", "main", "ours"):
-        return ("Our Champion (submission.py)", submission.agent)
-    elif name in ("dairy", "dairybaron", "baron"):
+    name_clean = name.strip()
+    # Check if it's a file path
+    path = Path(name_clean)
+    if path.exists() and path.suffix == ".py":
+        return (path.name, str(path.resolve()))
+
+    name_lower = name_clean.lower()
+    if name_lower in ("submission", "champion", "main", "ours", "main.py", "submission.py"):
+        return ("Our Champion (main.py)", str((ROOT / "main.py").resolve()))
+    elif name_lower in ("dairy", "dairybaron", "baron"):
         bot = DairyBaronAgent()
         return ("DairyBaron", lambda obs, cfg=None: bot(obs))
-    elif name in ("swarm", "swarmplanter"):
+    elif name_lower in ("swarm", "swarmplanter"):
         bot = SwarmPlanterAgent()
         return ("SwarmPlanter", lambda obs, cfg=None: bot(obs))
-    elif name in ("starter", "starter_bot"):
+    elif name_lower in ("starter", "starter_bot"):
         return ("Starter Baseline", "starter")
-    elif name in ("random", "random_bot"):
+    elif name_lower in ("random", "random_bot"):
         return ("Random Baseline", "random")
-    elif name in ("pass", "idle"):
+    elif name_lower in ("pass", "idle"):
         return ("Pass Agent", "pass")
     else:
-        print(f"Unknown agent '{name}', falling back to submission.py")
-        return ("Our Champion (submission.py)", submission.agent)
+        print(f"Unknown agent '{name}', falling back to main.py")
+        return ("Our Champion (main.py)", str((ROOT / "main.py").resolve()))
 
 def main():
-    parser = argparse.ArgumentParser(description="Watch two Kaggriculture agents compete in your browser.")
-    parser.add_argument("--p0", default="champion", help="Player 0 agent: champion, dairy, swarm, starter, random")
-    parser.add_argument("--p1", default="dairy", help="Player 1 agent: champion, dairy, swarm, starter, random")
+    parser = argparse.ArgumentParser(
+        description="Watch two Kaggriculture agents compete in your browser.",
+        epilog="Examples:\n"
+               "  python3 watch_game.py main.py starter 1234\n"
+               "  python3 watch_game.py --p0 main.py --p1 starter --seed 1234\n"
+    )
+    # Positional args (optional)
+    parser.add_argument("pos_p0", nargs="?", default=None, help="Player 0 (e.g. main.py, starter, dairy, random)")
+    parser.add_argument("pos_p1", nargs="?", default=None, help="Player 1 (e.g. starter, dairy, random)")
+    parser.add_argument("pos_seed", nargs="?", default=None, type=int, help="Game seed")
+
+    # Flag args
+    parser.add_argument("--p0", default=None, help="Player 0 agent")
+    parser.add_argument("--p1", default=None, help="Player 1 agent")
     parser.add_argument("--seed", type=int, default=42, help="Game seed (default: 42)")
     parser.add_argument("--steps", type=int, default=720, help="Episode steps (default: 720)")
     parser.add_argument("--no-open", action="store_true", help="Do not auto-open browser")
     parser.add_argument("--out", default="match.html", help="Output HTML filename")
     args = parser.parse_args()
 
-    p0_name, p0_fn = parse_agent(args.p0)
-    p1_name, p1_fn = parse_agent(args.p1)
+    # Resolve p0, p1, seed from positional or flagged args
+    p0_arg = args.p0 or args.pos_p0 or "champion"
+    p1_arg = args.p1 or args.pos_p1 or "dairy"
+    seed_arg = args.pos_seed if args.pos_seed is not None else args.seed
+
+    p0_name, p0_fn = parse_agent(p0_arg)
+    p1_name, p1_fn = parse_agent(p1_arg)
+    game_seed = seed_arg
 
     print(f"\n========================================================")
     print(f" 🌾 Kaggriculture Browser Match Viewer 🌾")
     print(f"========================================================")
     print(f" Player 0 (Blue):  {p0_name}")
     print(f" Player 1 (Orange):{p1_name}")
-    print(f" Seed:             {args.seed}")
+    print(f" Seed:             {game_seed}")
     print(f" Steps:            {args.steps} (30 in-game days)")
     print(f" Simulating match, please wait...")
 
     make = get_clean_make()
-    env = make("kaggriculture", configuration={"episodeSteps": args.steps, "seed": args.seed}, debug=False)
+    env = make("kaggriculture", configuration={"episodeSteps": args.steps, "seed": game_seed}, debug=False)
     env.run([p0_fn, p1_fn])
 
     final_0 = env.steps[-1][0]

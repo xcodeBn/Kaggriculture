@@ -270,7 +270,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run Kaggriculture Co-Evolution League")
     parser.add_argument("--generations", type=int, default=20)
     parser.add_argument("--population", type=int, default=4)
+    parser.add_argument("--steps", type=int, default=720)
     parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
 
-    run_coevolution_league(generations=args.generations, population_size=args.population, seed=args.seed)
+    run_coevolution_league(generations=args.generations, population_size=args.population, steps=args.steps, seed=args.seed)

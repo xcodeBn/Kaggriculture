@@ -15,8 +15,10 @@ env/
 .DS_Store
 WHATHAPPENING.md
 
-# Generated logs
+# Generated logs and visualizers
 *.log
+*.html
+match.html
 
 # Generated replays and experiment outputs; keep directory placeholders.
 replays/*
@@ -30,5 +32,10 @@ references/kaggle_agents/*
 !references/kaggle_agents/README.md
 experiments/results/*
 !experiments/results/.gitkeep
+
+# Large replay JSON dumps in experiment directories
+evoexperiments/*.json
+!evoexperiments/checkpoints/*.json
+topmeta/*.json
 
 .prompt

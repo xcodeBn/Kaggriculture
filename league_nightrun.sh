@@ -11,7 +11,8 @@ echo "Log file: league_train.log"
 echo "Checkpoints saved to: evoexperiments/checkpoints/best_league_champion.json"
 echo "=========================================================="
 
-export PYTHONPATH="/Users/apple/Desktop/kragliculture:$PYTHONPATH"
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+export PYTHONPATH="$DIR:$PYTHONPATH"
 
 caffeinate -i python3 evoexperiments/train_league.py \
   --generations 600 \

@@ -1,0 +1,33 @@
+{
+  "generation": 104,
+  "elapsed_minutes": 115.81777388254801,
+  "best_fitness": 158617.66666666666,
+  "best_money": 77635.33333333333,
+  "genome": {
+    "base_sheep_goal": 3,
+    "base_cow_goal": 3,
+    "base_goose_goal": 3,
+    "day0_hires": 3,
+    "day0_animal": "SHEEP",
+    "day0_animal_qty": 3,
+    "cash_reserve": 432,
+    "max_hands_p1": 3,
+    "max_hands_p2": 6,
+    "max_hands_p3": 7,
+    "max_hands_p4": 12,
+    "min_cash_for_hand": 25,
+    "expand_day_first": 8,
+    "expand_day_second": 12,
+    "land_reserve": 542,
+    "buy_land_cash_multiplier": 1.09,
+    "buy_land_enabled": true,
+    "max_wheat_tiles": 2,
+    "melon_weight": 2.77,
+    "strawberry_weight": 1.97,
+    "carrot_weight": 1.3,
+    "sell_price_ratio": 0.22,
+    "sell_batch_size": 8,
+    "drop_threshold": 1,
+    "feed_reserve_mult": 1.16
+  }
+}
